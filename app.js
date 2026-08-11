@@ -77,7 +77,7 @@ function bindSwipes(){document.querySelectorAll('.task-row-wrap').forEach(functi
    渲染
    ════════════════════════════════════════════ */
 function render(){var pages={today:pageToday,week:pageWeek,reports:pageReports,settings:pageSettings}; $('#app').innerHTML=pages[view]()+(view==='settings'?'':dockHtml())+navHtml();if(view==='week')bindSwipes();if(state.timer&&view==='today')tickInline()}
-function dockHtml(){return '<form class="input-dock" onsubmit="capture(event)"><input id="capture" autocomplete="off" placeholder="告诉秘书…" value="'+esc(draftText)+'"><button class="send" aria-label="发送">↑</button></form>'}
+function dockHtml(){return '<form class="input-dock" onsubmit="submitCapture(event)"><input id="capture-input" autocomplete="off" placeholder="告诉秘书…" value="'+esc(draftText)+'"><button class="send" aria-label="发送">↑</button></form>'}
 function navHtml(){var tabs=[{view:'today',label:'今天',icon:'🏠'},{view:'week',label:'本周',icon:'📅'},{view:'reports',label:'周报',icon:'📊'},{view:'settings',label:'设置',icon:'⚙️'}]; return '<nav class="nav">'+tabs.map(function(t){return '\n <button class="'+(view===t.view?'active':'')+'" onclick="go(\''+t.view+'\')"><span class="nav-icon">'+t.icon+'</span>'+t.label+'</button>'}).join('')+'</nav>'}
 function go(v){view=v;render()} function settings(){go('settings')}
 
@@ -87,7 +87,7 @@ function tickInline(){if(!state.timer)return;var el=$('#timer-text');if(!el||vie
 /* ════════════════════════════════════════════
    输入解析
    ════════════════════════════════════════════ */
-function capture(e){e.preventDefault();var input=$('#capture');draftText=input.value.trim();if(!draftText)return;parseInput(draftText)}
+async function submitCapture(e){e.preventDefault();var input=$('#capture-input');draftText=input.value.trim();if(!draftText){toast('先告诉秘书一件事');return}try{await parseInput(draftText)}catch(error){close();toast('发送失败，请检查网络后重试');console.error('秘书输入处理失败',error)}}
 async function parseInput(text){open('<h2>秘书正在整理</h2><p>先理解你说的任务和时间意图。</p><div class="notice">'+esc(text)+'</div>');var items=[];try{items=state.settings.apiKey?await aiParse(text):heuristic(text)}catch(e){items=heuristic(text);toast('AI 暂不可用，已用本地规则整理')}showDraft(items,text)}
 function heuristic(text){var life=/姐姐|朋友|老公|家里|被单|被套|大扫除|家庭财务|吃饭|聊天/.test(text);var status=/下周|以后|暂缓|先录入/.test(text)?'later':/候选|最好|想做/.test(text)?'candidate':'committed';var clean=text.replace(/这周|需要|完成|安排|先录入|下周|估计没办法|，/g,' ').trim();return clean.split(/[、；;\n]|和/).filter(function(s){return s.trim().length>1}).map(function(s){return {title:s.trim(),type:life?'life':'work',status:status,project:'',estimate:life?30:60,reason:status==='later'?'已识别为以后再说':'建议本周处理'}})}
 async function aiParse(text){var prompt='你是中文个人秘书。根据用户输入抽取工作或生活安排。返回纯 JSON 数组，不要 markdown。字段：title,type(work|life),status(committed|candidate|later|blocked),project,estimate(分钟整数),kind(relation|home|other),reason。用户输入：'+text;var r=await fetch('https://api.deepseek.com/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.apiKey},body:JSON.stringify({model:'deepseek-chat',temperature:.2,response_format:{type:'json_object'},messages:[{role:'system',content:'只输出 {"items":[...]}。估时无法判断时工作60分钟、生活30分钟。'},{role:'user',content:prompt}]})});if(!r.ok)throw Error('API');var data=await r.json();return JSON.parse(data.choices[0].message.content).items}

@@ -47,7 +47,7 @@ body::before{display:none}
   max-width:480px;
   min-height:100dvh;
   margin:0 auto;
-  padding:env(safe-area-inset-top,10px) 14px calc(var(--nav-h) + var(--dock-h) + 18px + var(--safe-bottom));
+  padding:calc(env(safe-area-inset-top, 0px) + 26px) 14px calc(var(--nav-h) + var(--dock-h) + 18px + var(--safe-bottom));
 }
 
 h1,h2,h3{font-family:var(--serif)}
