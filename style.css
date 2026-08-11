@@ -19,13 +19,13 @@
   --warm: #f4f1e7;
   --line: #e8e4d8;
   --danger: #b85c52;
-  --radius: 16px;
-  --shadow-sm: 0 1px 0 rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.05);
-  --shadow-md: 0 2px 0 rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.07);
+  --radius: 14px;
+  --shadow-sm: 0 1px 0 rgba(0,0,0,.03), 0 2px 8px rgba(0,0,0,.04);
+  --shadow-md: 0 1px 0 rgba(0,0,0,.03), 0 4px 14px rgba(0,0,0,.05);
   --serif: "STSong", "Songti SC", "Noto Serif CJK SC", serif;
   --sans: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
-  --nav-h: 64px;
-  --dock-h: 56px;
+  --nav-h: 56px;
+  --dock-h: 48px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -36,7 +36,7 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
@@ -66,12 +66,12 @@ body::before {
   max-width: 480px;
   min-height: 100dvh;
   margin: 0 auto;
-  padding: env(safe-area-inset-top, 20px) 20px calc(var(--nav-h) + var(--dock-h) + 32px + var(--safe-bottom));
+  padding: env(safe-area-inset-top, 14px) 16px calc(var(--nav-h) + var(--dock-h) + 24px + var(--safe-bottom));
 }
 
 /* ── 排版 ── */
 h1, h2, h3 { font-family: var(--serif); }
-h1 { font-size: 28px; line-height: 1.25; letter-spacing: .02em; font-weight: 700; }
+h1 { font-size: 22px; line-height: 1.25; letter-spacing: .02em; font-weight: 700; }
 
 /* ── 卡片 ── */
 .card {
@@ -79,7 +79,7 @@ h1 { font-size: 28px; line-height: 1.25; letter-spacing: .02em; font-weight: 700
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 20px;
+  padding: 16px;
 }
 
 /* ── 按钮 ── */
@@ -95,13 +95,13 @@ button {
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 52px;
-  border-radius: 14px;
+  min-height: 42px;
+  border-radius: 12px;
   background: var(--green-deep);
   color: #fff;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: .03em;
+  letter-spacing: .02em;
   transition: opacity .15s;
 }
 .btn-primary:active { opacity: .78; }
@@ -110,11 +110,11 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 18px;
-  border-radius: 12px;
+  padding: 8px 14px;
+  border-radius: 10px;
   background: var(--warm);
   color: var(--green-deep);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   border: 1px solid var(--line);
   transition: opacity .15s;
@@ -125,29 +125,29 @@ button {
   background: transparent;
   color: var(--green);
   font-weight: 600;
-  font-size: 15px;
-  padding: 8px;
+  font-size: 13px;
+  padding: 6px;
 }
 
 .btn-icon {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: var(--card);
   border: 1px solid var(--line);
   color: var(--green);
-  font-size: 18px;
+  font-size: 16px;
   display: grid;
   place-items: center;
 }
 
 .btn-done {
-  width: 32px; height: 32px;
+  width: 28px; height: 28px;
   border-radius: 50%;
   border: 1.5px solid var(--line);
   background: var(--card);
   color: var(--green);
-  font-size: 14px;
+  font-size: 13px;
   display: grid; place-items: center;
   flex-shrink: 0;
   transition: all .2s;
@@ -162,12 +162,12 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 8px 4px 0;
+  padding: 4px 2px 0;
 }
 
 .brand {
   font-family: "未尽思源宋", var(--serif);
-  font-size: 44px;
+  font-size: 36px;
   line-height: .95;
   letter-spacing: .02em;
   color: var(--green-deep);
@@ -175,20 +175,20 @@ button {
 }
 
 .brand-subtitle {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--muted);
-  letter-spacing: .1em;
-  margin-top: 6px;
+  letter-spacing: .08em;
+  margin-top: 4px;
 }
 
 .leaf-mark {
-  width: 52px; height: 52px;
+  width: 42px; height: 42px;
   border-radius: 50%;
   background: var(--card);
   border: 1px solid var(--line);
   color: var(--green);
   font-family: var(--serif);
-  font-size: 28px;
+  font-size: 22px;
   line-height: 1;
   display: grid;
   place-items: center;
@@ -196,8 +196,8 @@ button {
 }
 
 .date-line {
-  margin-top: 20px;
-  font-size: 18px;
+  margin-top: 14px;
+  font-size: 15px;
   color: var(--muted);
   font-weight: 500;
   letter-spacing: .02em;
@@ -205,11 +205,11 @@ button {
 
 .page-title {
   font-family: var(--serif);
-  font-size: 28px;
+  font-size: 22px;
   line-height: 1.2;
   letter-spacing: .015em;
   font-weight: 700;
-  margin: 6px 0 18px;
+  margin: 4px 0 14px;
   color: var(--ink);
 }
 
@@ -219,39 +219,39 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 20px 18px 16px;
-  margin-bottom: 16px;
+  padding: 16px 14px 12px;
+  margin-bottom: 12px;
 }
 
 .panel-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   color: var(--green-deep);
   font-family: var(--serif);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
-.panel-label .emoji { font-family: var(--sans); font-size: 18px; }
+.panel-label .emoji { font-family: var(--sans); font-size: 15px; }
 
 /* 优先任务卡片 */
 .focus-main {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: flex-start;
 }
 
 .priority-badge {
-  width: 48px; height: 48px;
+  width: 40px; height: 40px;
   display: grid; place-items: center;
   flex-shrink: 0;
   border-radius: 50%;
   background: var(--green-bg);
   color: var(--green-deep);
   font-family: var(--serif);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
   border: 2px solid var(--green-pale);
 }
@@ -260,7 +260,7 @@ button {
 
 .task-name {
   font-family: var(--serif);
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1.25;
   letter-spacing: .01em;
   font-weight: 700;
@@ -269,52 +269,52 @@ button {
 
 .meta {
   color: var(--muted);
-  font-size: 14px;
-  margin-top: 6px;
+  font-size: 12px;
+  margin-top: 4px;
 }
 .meta b { color: var(--green-deep); font-weight: 700; }
 
 /* 开始计时按钮在 focus 区 */
 .focus-card .btn-primary {
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 /* 后续任务 */
 .next-tasks {
-  margin-top: 20px;
+  margin-top: 16px;
   border-top: 1px solid var(--line);
 }
 
 .next-task {
   width: 100%;
-  min-height: 56px;
+  min-height: 48px;
   padding: 0;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   text-align: left;
   background: transparent;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
-  font-size: 15px;
+  font-size: 14px;
 }
 .next-task:last-child { border-bottom: 0; }
 
 .next-task .seq {
-  width: 32px; height: 32px;
+  width: 28px; height: 28px;
   display: grid; place-items: center;
   flex-shrink: 0;
   background: var(--warm);
   border-radius: 50%;
   font-family: var(--serif);
-  font-size: 18px;
+  font-size: 15px;
   color: var(--muted);
 }
 
 .next-task .title {
   flex: 1;
   font-family: var(--serif);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.3;
   font-weight: 700;
 }
@@ -322,7 +322,7 @@ button {
 .next-task .arrow {
   color: var(--muted);
   font-family: var(--serif);
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 300;
 }
 
@@ -330,17 +330,17 @@ button {
 .life-item {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   background: transparent;
-  padding: 6px 0;
+  padding: 5px 0;
 }
 
 .life-icon {
-  width: 44px; height: 44px;
+  width: 36px; height: 36px;
   display: grid; place-items: center;
   border-radius: 50%;
   background: var(--warm);
-  font-size: 22px;
+  font-size: 18px;
   flex-shrink: 0;
 }
 
@@ -348,46 +348,46 @@ button {
 
 .life-item .item-title {
   font-family: var(--serif);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.3;
   font-weight: 700;
 }
 
-.life-item .meta { font-size: 13px; margin-top: 3px; }
+.life-item .meta { font-size: 12px; margin-top: 2px; }
 
 .life-arrow {
-  width: 36px;
+  width: 30px;
   background: transparent;
   color: var(--muted);
   font-family: var(--serif);
-  font-size: 32px;
+  font-size: 26px;
   font-weight: 300;
   display: grid; place-items: center;
 }
 
 /* ── 空状态 ── */
 .empty-state {
-  padding: 28px 12px;
+  padding: 22px 8px;
   text-align: center;
   color: var(--muted);
 }
 
 .empty-state .empty-icon {
-  font-size: 40px;
-  margin-bottom: 10px;
-  opacity: .55;
+  font-size: 32px;
+  margin-bottom: 8px;
+  opacity: .5;
 }
 
 .empty-state .empty-label {
   font-family: var(--serif);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--ink);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .empty-state .empty-hint {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -401,43 +401,43 @@ button {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 28px;
+  padding: 32px 24px;
 }
 
 .timer-overlay .timer-close {
   position: absolute;
-  top: max(16px, env(safe-area-inset-top, 16px));
-  right: 20px;
-  width: 40px; height: 40px;
+  top: max(14px, env(safe-area-inset-top, 14px));
+  right: 16px;
+  width: 36px; height: 36px;
   border-radius: 50%;
   background: var(--warm);
   color: var(--muted);
-  font-size: 20px;
+  font-size: 18px;
   display: grid; place-items: center;
 }
 
 .timer-overlay .timer-label {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
   letter-spacing: .1em;
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .timer-overlay .timer-task {
   font-family: var(--serif);
-  font-size: 26px;
+  font-size: 22px;
   text-align: center;
   font-weight: 700;
   color: var(--ink);
-  margin-bottom: 32px;
+  margin-bottom: 24px;
   padding: 0 16px;
 }
 
 .timer-ring {
   position: relative;
-  width: 200px; height: 200px;
-  margin-bottom: 36px;
+  width: 170px; height: 170px;
+  margin-bottom: 28px;
 }
 
 .timer-ring svg {
@@ -466,7 +466,7 @@ button {
   align-items: center;
   justify-content: center;
   font-family: var(--serif);
-  font-size: 38px;
+  font-size: 32px;
   font-weight: 700;
   letter-spacing: .03em;
   color: var(--ink);
@@ -475,9 +475,9 @@ button {
 
 .timer-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  max-width: 300px;
+  max-width: 280px;
 }
 .timer-actions .btn-primary { flex: 1.3; }
 .timer-actions .btn-secondary { flex: 1; }
@@ -487,36 +487,36 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 4px 12px;
+  padding: 4px 2px 10px;
 }
 
 .topbar .brand {
   font-family: var(--serif);
-  font-size: 30px;
+  font-size: 26px;
   line-height: 1;
   color: var(--ink);
 }
 
 .topbar .subtitle {
   color: var(--muted);
-  font-size: 13px;
-  margin-top: 4px;
+  font-size: 12px;
+  margin-top: 3px;
 }
 
 .section-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 24px 4px 10px;
+  margin: 20px 2px 8px;
   font-family: var(--serif);
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--ink);
 }
 
 .section-title .count {
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--muted);
 }
@@ -527,14 +527,14 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 20px;
+  padding: 16px;
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
 }
 
 .capacity-ring {
-  width: 80px; height: 80px;
+  width: 68px; height: 68px;
   position: relative;
   flex-shrink: 0;
 }
@@ -547,13 +547,13 @@ button {
 .capacity-ring .ring-bg {
   fill: none;
   stroke: var(--green-bg);
-  stroke-width: 8;
+  stroke-width: 7;
 }
 
 .capacity-ring .ring-fill {
   fill: none;
   stroke: var(--green);
-  stroke-width: 8;
+  stroke-width: 7;
   stroke-linecap: round;
 }
 
@@ -564,7 +564,7 @@ button {
   align-items: center;
   justify-content: center;
   font-family: var(--serif);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--ink);
 }
@@ -572,27 +572,27 @@ button {
 .capacity-info { flex: 1; min-width: 0; }
 .capacity-info .main-text {
   font-family: var(--serif);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--ink);
   line-height: 1.3;
 }
 .capacity-info .sub-text {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 /* 任务列表 */
-.task-list { display: grid; gap: 8px; }
+.task-list { display: grid; gap: 7px; }
 
 .task-item {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 14px;
+  border-radius: 12px;
+  padding: 12px;
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
   position: relative;
   overflow: hidden;
@@ -604,7 +604,7 @@ button {
 
 .task-item .item-title {
   font-family: var(--serif);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -613,24 +613,24 @@ button {
 }
 
 .task-item .meta {
-  font-size: 12px;
-  margin-top: 3px;
+  font-size: 11px;
+  margin-top: 2px;
   color: var(--muted);
 }
 
 .task-item .item-actions {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
 }
 
 .task-item .btn-sm {
-  width: 34px; height: 34px;
+  width: 30px; height: 30px;
   border-radius: 50%;
   border: 1px solid var(--line);
   background: var(--card);
   color: var(--green);
-  font-size: 14px;
+  font-size: 13px;
   display: grid; place-items: center;
 }
 
@@ -638,23 +638,23 @@ button {
 .task-row-wrap {
   position: relative;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .task-row-wrap .swipe-bg {
   position: absolute;
   inset: 0;
   display: flex;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
 .task-row-wrap .swipe-action {
-  width: 72px;
+  width: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 18px;
   color: #fff;
   font-weight: 700;
 }
@@ -665,7 +665,7 @@ button {
 .task-row-wrap .task-item {
   position: relative;
   z-index: 1;
-  border-radius: 14px;
+  border-radius: 12px;
   transition: transform .2s cubic-bezier(.25,.8,.25,1.2);
   background: var(--card);
 }
@@ -674,28 +674,28 @@ button {
 .kpis {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-bottom: 20px;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 .kpi {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 12px;
+  padding: 14px;
 }
 
 .kpi .kpi-num {
   display: block;
   font-family: var(--serif);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: -.02em;
   color: var(--ink);
 }
 
 .kpi .kpi-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   margin-top: 2px;
 }
@@ -705,14 +705,14 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 18px;
-  margin-bottom: 12px;
+  padding: 16px;
+  margin-bottom: 10px;
 }
 
 .report-card h3 {
   font-family: var(--serif);
-  margin: 0 0 10px;
-  font-size: 19px;
+  margin: 0 0 8px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--ink);
 }
@@ -724,10 +724,10 @@ button {
 }
 
 .report-card .report-list li {
-  padding: 6px 0 6px 14px;
+  padding: 5px 0 5px 12px;
   border-left: 3px solid var(--green-pale);
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--ink);
 }
 
@@ -736,9 +736,9 @@ button {
 
 .report-advice {
   background: var(--green-bg);
-  border-radius: 12px;
-  padding: 14px 16px;
-  font-size: 15px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--green-deep);
   position: relative;
@@ -747,14 +747,14 @@ button {
 .report-advice::before {
   content: "❝";
   position: absolute;
-  top: 4px;
-  left: 8px;
-  font-size: 24px;
+  top: 2px;
+  left: 6px;
+  font-size: 22px;
   color: var(--green-pale);
   font-family: var(--serif);
 }
 
-.report-advice p { padding-left: 12px; }
+.report-advice p { padding-left: 10px; }
 
 .report-suggest {
   list-style: none;
@@ -763,9 +763,9 @@ button {
 }
 
 .report-suggest li {
-  padding: 5px 0 5px 18px;
+  padding: 4px 0 4px 16px;
   position: relative;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--ink);
   line-height: 1.5;
 }
@@ -774,8 +774,8 @@ button {
   content: "";
   position: absolute;
   left: 0;
-  top: 12px;
-  width: 6px; height: 6px;
+  top: 10px;
+  width: 5px; height: 5px;
   border-radius: 50%;
   background: var(--green-pale);
 }
@@ -786,34 +786,33 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 18px;
-  margin-bottom: 12px;
+  padding: 16px;
+  margin-bottom: 10px;
 }
 
 .setting-card .eyebrow {
   color: var(--green-deep);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: .08em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .setting-card p {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--muted);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   line-height: 1.5;
 }
 
 .field {
   display: grid;
-  gap: 6px;
-  margin-bottom: 14px;
+  gap: 5px;
+  margin-bottom: 12px;
 }
 
 .field label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--ink);
 }
@@ -825,10 +824,10 @@ button {
   border: 0;
   border-bottom: 1.5px solid var(--line);
   border-radius: 0;
-  padding: 10px 4px;
+  padding: 8px 4px;
   background: transparent;
   color: var(--ink);
-  font-size: 16px;
+  font-size: 15px;
   font-family: var(--sans);
   outline: none;
   transition: border-color .2s;
@@ -844,26 +843,26 @@ button {
   position: fixed;
   z-index: 4;
   left: 50%;
-  bottom: calc(var(--nav-h) + 8px + var(--safe-bottom));
+  bottom: calc(var(--nav-h) + 6px + var(--safe-bottom));
   transform: translateX(-50%);
-  width: min(480px, calc(100vw - 36px));
+  width: min(480px, calc(100vw - 32px));
   height: var(--dock-h);
-  padding: 0 6px 0 18px;
+  padding: 0 5px 0 14px;
   background: rgba(254, 252, 245, .94);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(232, 228, 216, .9);
-  border-radius: 28px;
-  box-shadow: var(--shadow-md);
+  border-radius: 24px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.03), 0 3px 10px rgba(0,0,0,.04);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .input-dock::before {
   content: "✦";
   color: var(--green);
-  font-size: 18px;
+  font-size: 16px;
   flex-shrink: 0;
   opacity: .7;
 }
@@ -876,21 +875,21 @@ button {
   background: transparent;
   padding: 0;
   color: var(--ink);
-  font-size: 15px;
+  font-size: 14px;
   font-family: var(--sans);
 }
 
 .input-dock input::placeholder { color: #b8b5a8; }
 
 .input-dock .send {
-  width: 42px; height: 42px;
+  width: 36px; height: 36px;
   border-radius: 50%;
   background: var(--green);
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   display: grid; place-items: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(42, 77, 60, .2);
+  box-shadow: 0 1px 4px rgba(42, 77, 60, .15);
   transition: opacity .15s;
 }
 .input-dock .send:active { opacity: .75; }
@@ -916,20 +915,20 @@ button {
 .nav button {
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
   position: relative;
   padding-top: 4px;
   transition: color .2s;
 }
 
 .nav button .nav-icon {
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
   font-weight: 400;
 }
@@ -943,7 +942,7 @@ button {
   content: "";
   position: absolute;
   top: 2px;
-  width: 5px; height: 5px;
+  width: 4px; height: 4px;
   border-radius: 50%;
   background: var(--green);
 }
@@ -965,25 +964,25 @@ button {
   background: var(--paper);
   max-height: 86dvh;
   overflow-y: auto;
-  border-radius: 20px 20px 0 0;
-  padding: 12px 20px calc(24px + env(safe-area-inset-bottom));
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, .12);
+  border-radius: 18px 18px 0 0;
+  padding: 10px 18px calc(20px + env(safe-area-inset-bottom));
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, .1);
   animation: slideUp .25s cubic-bezier(.22, .61, .36, 1);
 }
 
 .sheet::before {
   content: "";
   display: block;
-  width: 36px; height: 5px;
-  border-radius: 3px;
+  width: 30px; height: 4px;
+  border-radius: 2px;
   background: var(--line);
-  margin: 0 auto 16px;
+  margin: 0 auto 14px;
 }
 
 .sheet h2 {
   font-family: var(--serif);
-  margin: 0 0 6px;
-  font-size: 24px;
+  margin: 0 0 5px;
+  font-size: 21px;
   letter-spacing: .02em;
   font-weight: 700;
   color: var(--ink);
@@ -991,35 +990,35 @@ button {
 
 .sheet p {
   color: var(--muted);
-  margin: 0 0 16px;
-  font-size: 14px;
+  margin: 0 0 14px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .sheet .btn-primary,
 .sheet .btn-secondary {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
-/* ── Toast ── 改到底部导航上方 ── */
+/* ── Toast ── */
 .toast {
   position: fixed;
   z-index: 20;
   left: 50%;
-  bottom: calc(var(--nav-h) + 12px + var(--safe-bottom));
+  bottom: calc(var(--nav-h) + 10px + var(--safe-bottom));
   transform: translate(-50%, 80px);
   background: #2d2c28;
   color: #fefcf5;
-  padding: 10px 18px;
-  border-radius: 12px;
-  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 500;
   box-shadow: var(--shadow-md);
   transition: transform .3s cubic-bezier(.22, .61, .36, 1);
-  max-width: min(380px, 85vw);
+  max-width: min(340px, 85vw);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1030,11 +1029,11 @@ button {
 /* ── 提示卡片 ── */
 .notice {
   background: var(--green-bg);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 10px;
+  padding: 10px 12px;
   color: var(--green-deep);
-  font-size: 14px;
-  margin: 12px 0;
+  font-size: 13px;
+  margin: 10px 0;
   line-height: 1.5;
 }
 
@@ -1047,30 +1046,30 @@ button {
 .task-draft {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin: 8px 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 7px 0;
 }
 
 .task-draft .draft-title {
   font-family: var(--serif);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--ink);
 }
 
 .task-draft .draft-meta {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 .task-draft input[type="number"] {
-  width: 60px;
-  padding: 4px 6px;
+  width: 54px;
+  padding: 3px 5px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 7px;
+  font-size: 12px;
   text-align: center;
   background: var(--card);
 }
