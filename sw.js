@@ -1,5 +1,5 @@
 const CACHE = 'weijin-v1';
-const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json'];
+const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './fonts/weijin-brand.woff2'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS))));
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', event => {
