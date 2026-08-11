@@ -1,4 +1,4 @@
-const CACHE = 'weijin-v3';
+const CACHE = 'weijin-v4';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './fonts/weijin-brand.woff2', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', event => event.waitUntil(
   caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())
