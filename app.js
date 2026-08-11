@@ -515,14 +515,19 @@ function pageSettings() {
 /* ── 渲染与导航 ── */
 function render() {
   const pages = { today: pageToday, week: pageWeek, secretary: pageSecretary, reports: pageReports, settings: pageSettings };
-  $('#app').innerHTML = pages[view]() + (view === 'settings' ? '' : dockHtml()) + navHtml();
+  const showDock = view === 'today' || view === 'secretary';
+  const app = $('#app');
+  app.classList.toggle('with-quick-dock', view === 'today');
+  app.classList.toggle('with-chat-dock', view === 'secretary');
+  app.innerHTML = pages[view]() + (showDock ? dockHtml() : '') + navHtml();
   if (view === 'week') bindSwipes();
   if (state.timer && view === 'today') tickInline();
   if (view === 'secretary') setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 30);
 }
 
 function dockHtml() {
-  return '<form class="input-dock" onsubmit="submitSecretary(event)"><input id="secretary-input" autocomplete="off" placeholder="' + (view === 'secretary' ? '继续告诉秘书…' : '随时告诉秘书一件事…') + '" value="' + esc(draftText) + '"><button class="send" aria-label="发送">↑</button></form>';
+  const contextClass = view === 'secretary' ? 'chat-compose' : 'quick-capture';
+  return '<form class="input-dock ' + contextClass + '" onsubmit="submitSecretary(event)"><input id="secretary-input" autocomplete="off" placeholder="' + (view === 'secretary' ? '继续告诉秘书…' : '随时告诉秘书一件事…') + '" value="' + esc(draftText) + '"><button class="send" aria-label="发送">↑</button></form>';
 }
 
 function navHtml() {
@@ -1307,5 +1312,5 @@ window.addEventListener('beforeinstallprompt', event => { event.preventDefault()
 window.addEventListener('appinstalled', () => { deferredInstallPrompt = null; toast('未尽已安装到桌面'); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { rollTemporalState(); render(); } });
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=6');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=7');
 render();

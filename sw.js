@@ -1,4 +1,4 @@
-const CACHE = 'weijin-v6';
+const CACHE = 'weijin-v7';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './fonts/weijin-brand.woff2', './icons/icon-192.png', './icons/icon-512.png'];
 
 function offlineCoreAsset(pathname) {

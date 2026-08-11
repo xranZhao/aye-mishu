@@ -23,6 +23,7 @@
   --sans: system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;
   --nav-h: 48px;
   --dock-h: 42px;
+  --chat-dock-h: 54px;
   --safe-bottom: env(safe-area-inset-bottom,0px);
 }
 
@@ -47,8 +48,11 @@ body::before{display:none}
   max-width:480px;
   min-height:100dvh;
   margin:0 auto;
-  padding:calc(env(safe-area-inset-top, 0px) + 26px) 14px calc(var(--nav-h) + var(--dock-h) + 18px + var(--safe-bottom));
+  padding:calc(env(safe-area-inset-top, 0px) + 26px) 14px calc(var(--nav-h) + 18px + var(--safe-bottom));
 }
+
+.app-shell.with-quick-dock{padding-bottom:calc(var(--nav-h) + var(--dock-h) + 18px + var(--safe-bottom))}
+.app-shell.with-chat-dock{padding-bottom:calc(var(--nav-h) + var(--chat-dock-h) + 18px + var(--safe-bottom))}
 
 h1,h2,h3{font-family:var(--serif)}
 h1{font-size:18px;line-height:1.25;letter-spacing:.02em;font-weight:700}
@@ -461,6 +465,29 @@ button{font:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transpar
   transition:opacity .15s;
 }
 .input-dock .send:active{opacity:.75}
+
+/* 秘书页使用正式对话输入栏，不再表现为悬浮卡片 */
+.input-dock.chat-compose{
+  bottom:calc(var(--nav-h) + var(--safe-bottom));
+  width:min(480px,100vw);height:var(--chat-dock-h);
+  border:0;border-top:1px solid var(--line);border-radius:0;
+  padding:8px 12px;background:rgba(249,246,237,.98);
+  gap:7px;
+}
+
+.input-dock.chat-compose::before{display:none}
+
+.input-dock.chat-compose input{
+  height:36px;padding:0 13px;
+  background:var(--card);border:1px solid var(--line);border-radius:18px;
+}
+
+.input-dock.chat-compose input:focus{
+  border-color:var(--green-pale);
+  box-shadow:0 0 0 3px rgba(61,104,83,.08);
+}
+
+.input-dock.chat-compose .send{width:36px;height:36px}
 
 /* ── 底部导航 ── */
 .nav{
