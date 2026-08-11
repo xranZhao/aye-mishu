@@ -1,161 +1,1311 @@
-/* 未尽：离线优先 PWA。数据与 DeepSeek Key 仅写入 localStorage。*/
-const KEY='weijin-state-v1';
-const $=s=>document.querySelector(s); const id=()=>crypto.randomUUID();
-const defaultState={tasks:[],life:[],projects:[],sessions:[],reports:[],specialWeeks:[],settings:{apiKey:'',capacity:10},timer:null,reportDrafts:{}};
-let state=load(), view='today', draftText='', deferredInstallPrompt=null;
-let _swipeState=null, _timerRAF=null;
+/* 未尽：单人自用、离线优先的 AI 秘书。数据与 DeepSeek Key 只保存在本机。 */
+const KEY = 'weijin-state-v1';
+const MODEL = 'deepseek-v4-pro';
+const API_URL = 'https://api.deepseek.com/chat/completions';
+const $ = selector => document.querySelector(selector);
+const id = () => crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2);
 
-/* ── 数据 ── */
-function isoDate(value){var d=value?new Date(value):new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
-function weekStartOf(value){var d=value?new Date(value):new Date(),day=d.getDay()||7;d.setHours(12,0,0,0);d.setDate(d.getDate()-day+1);return isoDate(d)}
-function addDays(date,days){var d=new Date(date+'T12:00:00');d.setDate(d.getDate()+days);return isoDate(d)}
-function currentWeekStart(){return weekStartOf(new Date())}
-function nextWeekStart(){return addDays(currentWeekStart(),7)}
-function load(){try{var parsed=JSON.parse(localStorage.getItem(KEY))||{},merged={...structuredClone(defaultState),...parsed,settings:{...defaultState.settings,...(parsed.settings||{})}};merged.tasks=(merged.tasks||[]).map(function(t){var status=t.status==='candidate'?'committed':t.status;return {...t,status:status,weekStart:t.weekStart||(status==='later'?nextWeekStart():currentWeekStart()),plannedDate:t.plannedDate||(status==='later'?nextWeekStart():isoDate()),dependsOn:Array.isArray(t.dependsOn)?t.dependsOn:[]}});merged.life=(merged.life||[]).map(function(x){return {...x,weekStart:x.weekStart||currentWeekStart(),plannedDate:x.plannedDate||isoDate()}});merged.sessions=(merged.sessions||[]).map(function(s){return {...s,durationMs:s.durationMs??(s.endedAt?Math.max(0,new Date(s.endedAt)-new Date(s.startedAt)):0),weekStart:s.weekStart||weekStartOf(s.startedAt)}});if(merged.timer)merged.timer={...merged.timer,paused:merged.timer.paused??!merged.timer.startedAt};return merged}catch{return structuredClone(defaultState)}}
-function persist(){localStorage.setItem(KEY,JSON.stringify(state))}
-function save(){persist();render()}
-function esc(v=''){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function dateText(){return new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric',weekday:'long'}).format(new Date())}
-function minutes(t){return Math.round(t/60000)} function hours(n){var v=Math.max(0,+n||0);return (v/60).toFixed(v%60?1:0)+'h'}
-function durationText(ms){var sec=Math.max(0,Math.floor((+ms||0)/1000));if(sec<60)return sec+'秒';var min=Math.floor(sec/60);if(min<60)return min+'分钟';var h=Math.floor(min/60),rest=min%60;return h+'小时'+(rest?rest+'分钟':'')}
+const PROJECT_SEED = [
+  { name: '主业', group: '', status: 'fixed', priority: 1, outcome: '守住稳定现金流和保障', monthlyBudgetMinutes: 0 },
+  { name: '阿野在武汉', group: '阿野IP', status: 'focus', priority: 1, protected: true, outcome: '抓住主业变化窗口，发布连贯真实内容并验证关注、互动和私域连接', monthlyBudgetMinutes: 0 },
+  { name: '是阿野吖', group: '阿野IP', status: 'secondary', priority: 2, outcome: '出现适合深入表达的选题时独立创作', monthlyBudgetMinutes: 0 },
+  { name: '磕学家', group: '', status: 'maintenance', priority: 3, outcome: '维护已验证的收入渠道', monthlyBudgetMinutes: 480 },
+  { name: '家庭财务', group: '', status: 'maintenance', priority: 2, outcome: '处理本月真正重要的家庭财务事项', monthlyBudgetMinutes: 0 },
+  { name: '基金理财', group: '', status: 'low', priority: 4, outcome: '低频学习与实践，不用学习焦虑占满时间', monthlyBudgetMinutes: 0 },
+  { name: '任推帮', group: '', status: 'opportunity', priority: 4, outcome: '有明确收益机会时再投入', monthlyBudgetMinutes: 0 },
+  { name: '神图', group: '', status: 'paused', priority: 5, outcome: '暂停保存，等待重新激活', monthlyBudgetMinutes: 0 },
+  { name: 'PPT接单', group: '', status: 'paused', priority: 5, outcome: '暂停保存，等待客源或明确机会', monthlyBudgetMinutes: 0 }
+];
 
-/* ── Toast（底部导航上方） ── */
-function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(el._tid);el._tid=setTimeout(()=>el.classList.remove('show'),2400)}
+const defaultState = {
+  schemaVersion: 2,
+  tasks: [],
+  life: [],
+  projects: PROJECT_SEED,
+  sessions: [],
+  reports: [],
+  monthlyReviews: [],
+  incomeRecords: [],
+  specialWeeks: [],
+  reportDrafts: {},
+  timer: null,
+  secretary: { messages: [], session: null, proposal: null, error: null, busy: false },
+  settings: { apiKey: '', personalCapacity: 7, mainCapacity: 20, reminderTime: '22:30' }
+};
 
-/* ── Sheet 弹窗 ── */
-function open(html){document.body.insertAdjacentHTML('beforeend','<div class="sheet-backdrop" onclick="if(event.target===this)this.remove()"><section class="sheet">'+html+'</section></div>')}
-function close(){document.querySelector('.sheet-backdrop')?.remove()}
+let state = load();
+let view = 'today';
+let reportMode = 'weekly';
+let draftText = '';
+let deferredInstallPrompt = null;
+let _swipeState = null;
+let _timerRAF = null;
 
-/* ── 状态计算 ── */
-function inCurrentWeek(x){return (x.weekStart||currentWeekStart())===currentWeekStart()}
-function activeTasks(){return state.tasks.filter(t=>inCurrentWeek(t)&&['committed','active','paused','blocked'].includes(t.status))}
-function taskActualMs(taskId){var saved=state.sessions.filter(s=>s.taskId===taskId).reduce((n,s)=>n+(+s.durationMs||0),0);if(state.timer&&state.timer.taskId===taskId&&!state.timer.paused&&state.timer.startedAt)saved+=Math.max(0,Date.now()-new Date(state.timer.startedAt));return saved}
-function usedMs(){return state.sessions.filter(inCurrentWeek).reduce((n,s)=>n+(+s.durationMs||0),0)+(state.timer&&!state.timer.paused&&weekStartOf(state.timer.startedAt)===currentWeekStart()?Math.max(0,Date.now()-new Date(state.timer.startedAt)):0)}
-function usedMinutes(){return usedMs()/60000}
-function taskPendingMinutes(t){if(t.status==='done')return 0;if(+t.remaining>0)return +t.remaining;return Math.max(0,(+t.estimate||0)-taskActualMs(t.id)/60000)}
-function committedForecastMinutes(){return usedMinutes()+activeTasks().reduce((n,t)=>n+taskPendingMinutes(t),0)}
-function usedPct(){var cap=state.settings.capacity*60;return cap?Math.min(1,usedMinutes()/cap):0}
-function remaining(){return state.settings.capacity*60-committedForecastMinutes()}
-function dependencyReady(t){return (t.dependsOn||[]).every(function(depId){var dep=state.tasks.find(function(x){return x.id===depId});return dep&&dep.status==='done'})}
-function today(){var now=isoDate();return state.tasks.filter(function(t){return inCurrentWeek(t)&&['committed','active','paused'].includes(t.status)&&(!t.plannedDate||t.plannedDate<=now)&&dependencyReady(t)}).sort(function(a,b){return String(a.plannedDate||'').localeCompare(String(b.plannedDate||''))||(a.priority||9)-(b.priority||9)}).slice(0,3)}
+/* ── 数据迁移与基础工具 ── */
+function isoDate(value) {
+  const date = value ? new Date(value) : new Date();
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+}
 
-/* ── 环形进度 SVG ── */
-function ringSvg(pct,size,sw,cls){var r=(size-sw)/2,c=2*Math.PI*r,o=c*(1-pct);return '<svg viewBox="0 0 '+size+' '+size+'"><circle class="ring-bg" cx="'+(size/2)+'" cy="'+(size/2)+'" r="'+r+'" stroke-width="'+sw+'"/><circle class="'+cls+'" cx="'+(size/2)+'" cy="'+(size/2)+'" r="'+r+'" stroke-width="'+sw+'" stroke-dasharray="'+c+'" stroke-dashoffset="'+o+'"/></svg>'}
+function weekStartOf(value) {
+  const date = value ? new Date(value) : new Date();
+  const day = date.getDay() || 7;
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() - day + 1);
+  return isoDate(date);
+}
 
-/* ── 空状态 ── */
-function empty(icon,title,hint){return '<div class="empty-state"><div class="empty-icon">'+icon+'</div><div class="empty-label">'+title+'</div><div class="empty-hint">'+hint+'</div></div>'}
+function addDays(date, days) {
+  const value = new Date(date + 'T12:00:00');
+  value.setDate(value.getDate() + days);
+  return isoDate(value);
+}
 
-/* ════════════════════════════════════════════
-   今日页
-   ════════════════════════════════════════════ */
-function pageToday(){var work=today(), life=state.life.filter(function(x){return inCurrentWeek(x)&&x.status==='planned'&&(!x.plannedDate||x.plannedDate<=isoDate())}).slice(0,3), running=state.timer&&state.tasks.find(function(t){return t.id===state.timer.taskId}), subtitle=running?(state.timer.paused?'这件事已暂停':'专注在这一件事上'):'今天，先做这一件'; return '\n <header class="masthead"><div><div class="brand">未尽</div><div class="brand-subtitle">你的个人 AI 秘书</div></div><button class="leaf-mark" onclick="settings()" aria-label="设置">⚙️</button></header>\n <div class="date-line">'+dateText()+' · '+subtitle+'</div>\n\n <section class="panel">\n  <div class="panel-label"><span class="emoji">📋</span> 工作</div>\n  '+(running?timerInlineHtml(running):work[0]?focusCardHtml(work[0],work.slice(1)):empty('📝','今天还没有可执行的工作','未来事项或依赖未满足的工作不会被提前塞进今天。'))+'\n </section>\n\n <section class="panel">\n  <div class="panel-label"><span class="emoji">🌿</span> 生活</div>\n  '+(life.length?life.map(lifeRowHtml).join(''):empty('🌸','生活也值得被留出时间','输入「和朋友吃饭」「大扫除」试试。'))+'\n </section>'}
-function focusCardHtml(t,next){var actual=taskActualMs(t.id),time=actual>0?'已投入 '+durationText(actual)+' · 预计剩余约 '+hours(taskPendingMinutes(t)):'预计 '+hours(+t.estimate||0); return '\n <div class="focus-main"><div class="priority-badge">1</div><div class="focus-copy"><div class="task-name">'+esc(t.title)+'</div><div class="meta">'+time+'</div></div></div>\n <button class="btn-primary" style="margin-top:12px" onclick="startTimer(\''+t.id+'\')">▶&nbsp;&nbsp;'+(t.status==='paused'?'继续计时':'开始计时')+'</button>\n '+(next.length?'<div class="next-tasks">'+next.map(function(x,i){return '\n  <button class="next-task" onclick="startTimer(\''+x.id+'\')"><span class="seq">'+(i+2)+'</span><span class="title">'+esc(x.title)+'</span><span class="arrow">›</span></button>'}).join('')+'</div>':'')}
-function timerInlineHtml(t){return '\n <div style="text-align:center;padding:4px 0">\n  <div class="meta" style="margin-bottom:4px">'+(state.timer.paused?'已暂停':'正在专注')+'</div>\n  <div style="font-family:var(--serif);font-size:18px;font-weight:700;margin-bottom:10px">'+esc(t.title)+'</div>\n  <div id="timer-text" style="font-family:var(--serif);font-size:30px;font-weight:700;letter-spacing:.03em;margin-bottom:12px">'+timerClock(taskActualMs(t.id))+'</div>\n  <button class="btn-primary" onclick="openTimerOverlay(\''+t.id+'\')">打开专注面板</button>\n </div>'}
-function lifeRowHtml(x){return '\n <div class="life-item"><div class="life-icon">'+(x.kind==='relation'?'💬':'🏠')+'</div><div class="item-main"><div class="item-title">'+esc(x.title)+'</div><div class="meta">'+(x.when||'本周找合适时间')+' · 约 '+hours(+x.estimate||0)+'</div></div><button class="life-arrow" onclick="lifeDone(\''+x.id+'\')">›</button></div>'}
+function currentWeekStart() { return weekStartOf(new Date()); }
+function nextWeekStart() { return addDays(currentWeekStart(), 7); }
+function monthKey(value) { return isoDate(value).slice(0, 7); }
 
-/* ════════════════════════════════════════════
-   本周页
-   ════════════════════════════════════════════ */
-function pageWeek(){var tasks=activeTasks(), life=state.life.filter(function(x){return inCurrentWeek(x)&&x.status==='planned'}), capPct=usedPct(), rem=remaining(); return '\n <header class="topbar"><div><div class="brand">本周</div><div class="subtitle">先看真实容量，再做承诺</div></div><button class="btn-icon" onclick="planWeek()">＋</button></header>\n\n <div class="capacity-card">\n  <div class="capacity-ring">'+ringSvg(Math.min(1,capPct),80,8,'ring-fill')+'<div class="ring-center">'+Math.round(capPct*100)+'%</div></div>\n  <div class="capacity-info"><div class="main-text">'+(rem>=0?'还可以承诺 '+hours(rem):'已超出可靠容量 '+hours(-rem))+'</div><div class="sub-text">已投入 '+hours(usedMinutes())+' · 可靠容量 '+state.settings.capacity+'h</div></div>\n </div>\n <button class="btn-primary" style="margin-top:14px" onclick="planWeek()">和秘书做周计划</button>\n\n <div class="section-title">工作承诺 <span class="count">'+tasks.length+' 项</span></div>\n <div class="task-list">'+(tasks.length?tasks.map(taskRowHtml).join(''):empty('📋','还没有本周承诺','在输入框告诉秘书你想做的事。'))+'</div>\n\n <div class="section-title">生活安排 <span class="count">'+life.length+' 项 · 不计工作容量</span></div>\n <div class="task-list">'+(life.length?life.map(lifeRowHtml).join(''):empty('🌸','生活也可以被留出空间','输入你的生活安排，秘书会帮你记住。'))+'</div>'}
-function taskRowHtml(t){var actual=taskActualMs(t.id),rem=actual>0?'已投入 '+durationText(actual)+' · 剩余约 '+hours(taskPendingMinutes(t)):'预计 '+hours(+t.estimate||0),deps=(t.dependsOn||[]).map(function(depId){var dep=state.tasks.find(function(x){return x.id===depId});return dep&&dep.title}).filter(Boolean),blocked=t.status==='blocked'||(deps.length&&!dependencyReady(t)),blockText=t.blockedReason||(deps.length?'等待 '+deps.join('、'):'当前受阻'); return '\n <div class="task-row-wrap" data-task-id="'+t.id+'">\n  <div class="swipe-bg"><div class="swipe-action swipe-done" onclick="event.stopPropagation();finishTask(\''+t.id+'\')" data-action="done">✓</div><div class="swipe-action swipe-block" onclick="event.stopPropagation();blockTask(\''+t.id+'\')" data-action="block">⊘</div></div>\n  <div class="task-item" id="task-item-'+t.id+'">\n   <button class="btn-done" onclick="event.stopPropagation();finishTask(\''+t.id+'\')">○</button>\n   <div class="item-main"><div class="item-title">'+esc(t.title)+'</div><div class="meta">'+esc(t.project||'未归属项目')+' · '+(t.plannedDate?esc(t.plannedDate)+' · ':'')+rem+(blocked?' · '+esc(blockText):'')+'</div></div>\n   <div class="item-actions">'+(!blocked?'<button class="btn-sm" onclick="event.stopPropagation();startTimer(\''+t.id+'\')">▶</button>':'')+'<button class="btn-sm" onclick="event.stopPropagation();taskMenu(\''+t.id+'\')">⋮</button></div>\n  </div>\n </div>'}
+function planningWeekStart() {
+  const now = new Date();
+  return now.getDay() === 0 && now.getHours() >= 20 ? nextWeekStart() : currentWeekStart();
+}
 
-/* ════════════════════════════════════════════
-   周报页
-   ════════════════════════════════════════════ */
-function pageReports(){var r=buildReport(),draft=state.reportDrafts?.[currentWeekStart()]; return '\n <header class="topbar"><div><div class="brand">周报</div><div class="subtitle">事实、原因、下一步</div></div><button class="btn-icon" onclick="exportMenu()">⇩</button></header>\n\n <div class="kpis">\n  <div class="kpi"><span class="kpi-num">'+r.done+'/'+r.total+'</span><span class="kpi-label">本周工作完成</span></div>\n  <div class="kpi"><span class="kpi-num">'+hours(r.actualMinutes)+'</span><span class="kpi-label">实际专注投入</span></div>\n  <div class="kpi"><span class="kpi-num">'+r.bias+'</span><span class="kpi-label">已完成项估时偏差</span></div>\n  <div class="kpi"><span class="kpi-num">'+(remaining()>=0?hours(remaining()):'-'+hours(-remaining()))+'</span><span class="kpi-label">剩余可靠容量</span></div>\n </div>\n\n <section class="report-card"><h3>工作承诺</h3><ul class="report-list">'+(r.workLines||'<li>本周还没有工作承诺。</li>')+'</ul></section>\n <section class="report-card"><h3>生活安排 <small style="color:var(--muted);font-weight:400">不计工作容量</small></h3><ul class="report-list">'+(r.lifeLines||'<li>本周还没有生活安排。</li>')+'</ul></section>\n <section class="report-card"><h3>秘书的判断</h3><div class="report-advice"><p>'+(draft?esc(draft.judgment):'尚未生成。本区不会使用固定文案冒充 AI 判断。')+'</p></div>'+(draft?'<small class="meta">'+esc(draft.sourceLabel)+'</small>':'<button class="btn-secondary" onclick="generateWeeklyReport()">生成本周判断</button>')+'</section>\n <section class="report-card"><h3>下周建议</h3><ul class="report-suggest">'+(draft&&draft.suggestions?.length?draft.suggestions.map(function(x){return '<li>'+esc(x)+'</li>'}).join(''):'<li>生成本周判断后给出针对性建议。</li>')+'</ul></section>\n\n <button class="btn-primary" onclick="saveReport()">保存本周周报快照</button>'}
-function buildReport(){var ws=currentWeekStart(),ts=state.tasks.filter(function(t){return t.weekStart===ws&&t.status!=='later'}),life=state.life.filter(function(x){return x.weekStart===ws}),done=ts.filter(function(t){return t.status==='done'}),estimates=done.reduce(function(n,t){return n+(+t.estimate||0)},0),actualMs=state.sessions.filter(function(s){return s.weekStart===ws}).reduce(function(n,s){return n+(+s.durationMs||0)},0),doneActual=done.reduce(function(n,t){return n+taskActualMs(t.id)/60000},0),bias=estimates?String(Math.round((doneActual-estimates)/estimates*100))+'%':'暂无';return {weekStart:ws,total:ts.length,done:done.length,actualMs:actualMs,actualMinutes:actualMs/60000,bias:bias,tasks:ts,life:life,workLines:ts.map(function(t){return '<li class="'+(t.status==='done'?'done':'')+'">'+esc(t.title)+'<br><small style="color:var(--muted)">'+label(t.status)+' · 预计 '+hours(+t.estimate||0)+' · 实际 '+durationText(taskActualMs(t.id))+(t.plannedDate?' · '+esc(t.plannedDate):'')+'</small></li>'}).join(''),lifeLines:life.map(function(x){return '<li class="'+(x.status==='done'?'done':'')+'">'+esc(x.title)+'<br><small style="color:var(--muted)">'+(x.status==='done'?'已完成':'本周安排')+' · 不计工作容量</small></li>'}).join('')}}
-function localReport(r){var blocked=r.tasks.filter(function(t){return t.status==='blocked'}),unfinished=r.total-r.done,judgment=r.total===0?'本周还没有足够的工作数据可供判断。':'本周完成 '+r.done+'/'+r.total+' 项工作，实际专注 '+durationText(r.actualMs)+'。'+(blocked.length?'受阻事项是：'+blocked.map(function(t){return t.title}).join('、')+'。':'')+(remaining()<0?'当前承诺超过可靠容量，不建议继续加塞。':unfinished?'还有 '+unfinished+' 项未完成，先核对依赖和剩余估时。':'本周承诺已兑现。');return {judgment:judgment,suggestions:[blocked.length?'下周先解除受阻依赖，再安排后续事项。':'下周继续按依赖顺序确认 1–3 件每日重点。',r.bias==='暂无'?'继续积累预估与实际时间数据。':'参考本周 '+r.bias+' 的估时偏差调整下周预估。','周六保持完整休息，不排工作承诺。'],sourceLabel:'本地规则摘要 · 非 AI'}}
-async function generateWeeklyReport(){var r=buildReport();open('<h2>正在生成周报判断</h2><p>秘书会依据本周真实工作、生活与计时数据给出判断。</p>');var result;try{if(!state.settings.apiKey)throw Error('NO_KEY');var payload={weekStart:r.weekStart,capacityHours:state.settings.capacity,exceptionSprint:state.specialWeeks.includes(r.weekStart),work:r.tasks.map(function(t){return {title:t.title,status:label(t.status),estimateMinutes:t.estimate,actualMinutes:Math.round(taskActualMs(t.id)/60000),remainingMinutes:taskPendingMinutes(t),plannedDate:t.plannedDate,dependencies:(t.dependsOn||[]).map(function(depId){return state.tasks.find(function(x){return x.id===depId})?.title}).filter(Boolean)}}),life:r.life.map(function(x){return {title:x.title,status:x.status,kind:x.kind}})};var response=await fetch('https://api.deepseek.com/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.apiKey},body:JSON.stringify({model:'deepseek-chat',temperature:.3,response_format:{type:'json_object'},messages:[{role:'system',content:'你是直接、不哄人的个人秘书。只输出 JSON：{"judgment":"基于事实的判断","suggestions":["最多3条具体建议"]}。生活不计工作KPI；例外冲刺不得作为未来容量标准。'},{role:'user',content:JSON.stringify(payload)}]})});if(!response.ok)throw Error('API');var data=await response.json();result=JSON.parse(data.choices[0].message.content);result.sourceLabel='DeepSeek · 基于本周真实数据'}catch(error){result=localReport(r)}state.reportDrafts=state.reportDrafts||{};state.reportDrafts[r.weekStart]={...result,generatedAt:new Date().toISOString()};close();save();toast(result.sourceLabel.indexOf('DeepSeek')===0?'AI 周报判断已生成':'AI 暂不可用，已生成本地规则摘要')}
-function saveReport(){var r=buildReport(),draft=state.reportDrafts?.[r.weekStart]||localReport(r),snapshot={id:id(),weekStart:r.weekStart,createdAt:new Date().toISOString(),done:r.done,total:r.total,actualMinutes:r.actualMinutes,bias:r.bias,work:r.tasks.map(function(t){return {...t,actualMs:taskActualMs(t.id)}}),life:r.life.map(function(x){return {...x}}),judgment:draft.judgment,suggestions:draft.suggestions,sourceLabel:draft.sourceLabel};state.reports=state.reports.filter(function(x){return x.weekStart!==r.weekStart});state.reports.unshift(snapshot);save();toast('本周周报快照已保存')}
+function ensureProjects(projects) {
+  const existing = Array.isArray(projects) ? projects : [];
+  return PROJECT_SEED.map(seed => ({ ...seed, ...(existing.find(item => item.name === seed.name) || {}), id: existing.find(item => item.name === seed.name)?.id || id() }))
+    .concat(existing.filter(item => !PROJECT_SEED.some(seed => seed.name === item.name)));
+}
 
-/* ════════════════════════════════════════════
-   设置页
-   ════════════════════════════════════════════ */
-function pageSettings(){return '\n <header class="topbar"><div><div class="brand">设置</div><div class="subtitle">数据只保留在这台设备</div></div></header>\n\n <section class="setting-card"><div class="eyebrow">DeepSeek AI</div><p>密钥不会写进 GitHub，只保存于浏览器。</p><div class="field"><label>API Key</label><input id="api-key" type="password" placeholder="sk-..." value="'+esc(state.settings.apiKey)+'"></div><button class="btn-primary" onclick="saveSettings()">保存设置</button></section>\n\n <section class="setting-card"><div class="eyebrow">本周容量</div><div class="field"><label>本周可承诺专注时长（小时）</label><input id="capacity" type="number" min="1" max="100" value="'+state.settings.capacity+'"></div><button class="btn-secondary" onclick="saveSettings()">更新容量</button></section>\n\n <section class="setting-card"><div class="eyebrow">数据</div><p>可导出完整备份，换手机前请先保存 JSON 文件。</p><button class="btn-secondary" onclick="exportMenu()">导出与备份</button></section>'}
+function load() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(KEY)) || {};
+    const oldCapacity = Number(parsed.settings?.capacity);
+    const merged = {
+      ...structuredClone(defaultState),
+      ...parsed,
+      schemaVersion: 2,
+      settings: {
+        ...defaultState.settings,
+        ...(parsed.settings || {}),
+        personalCapacity: Number(parsed.settings?.personalCapacity) || (parsed.schemaVersion >= 2 ? oldCapacity : 7) || 7,
+        mainCapacity: Number(parsed.settings?.mainCapacity) || 20
+      },
+      secretary: { ...defaultState.secretary, ...(parsed.secretary || {}), busy: false }
+    };
+    merged.projects = ensureProjects(merged.projects);
+    merged.tasks = (merged.tasks || []).map(task => {
+      let status = task.status === 'candidate' ? 'committed' : task.status;
+      let weekStart = task.weekStart || (status === 'later' ? nextWeekStart() : currentWeekStart());
+      if (weekStart <= currentWeekStart() && status === 'later') status = 'committed';
+      if (weekStart < currentWeekStart() && ['committed', 'active', 'paused', 'blocked'].includes(status)) weekStart = currentWeekStart();
+      const pool = task.capacityPool || (task.project === '主业' ? 'main' : 'personal');
+      return {
+        ...task,
+        status,
+        capacityPool: pool,
+        weekStart,
+        plannedDate: task.plannedDate || (status === 'later' ? nextWeekStart() : isoDate()),
+        dependsOn: Array.isArray(task.dependsOn) ? task.dependsOn : [],
+        externalConditions: Array.isArray(task.externalConditions) ? task.externalConditions : []
+      };
+    });
+    merged.life = (merged.life || []).map(item => ({
+      ...item,
+      weekStart: item.weekStart || currentWeekStart(),
+      plannedDate: item.plannedDate || isoDate()
+    }));
+    merged.sessions = (merged.sessions || []).map(session => ({
+      ...session,
+      durationMs: session.durationMs ?? (session.endedAt ? Math.max(0, new Date(session.endedAt) - new Date(session.startedAt)) : 0),
+      weekStart: session.weekStart || weekStartOf(session.startedAt)
+    }));
+    if (merged.timer) merged.timer = { ...merged.timer, paused: merged.timer.paused ?? !merged.timer.startedAt };
+    return merged;
+  } catch (error) {
+    console.error('读取本地数据失败', error);
+    return structuredClone(defaultState);
+  }
+}
 
-/* ════════════════════════════════════════════
-   计时器全屏浮层
-   ════════════════════════════════════════════ */
-function timerClock(ms){var totalSec=Math.floor(Math.max(0,+ms||0)/1000),h=String(Math.floor(totalSec/3600)).padStart(2,'0'),m=String(Math.floor(totalSec/60)%60).padStart(2,'0'),s=String(totalSec%60).padStart(2,'0');return h+':'+m+':'+s}
-function openTimerOverlay(taskId){var t=state.tasks.find(function(x){return x.id===taskId});if(!t)return;document.getElementById('timer-overlay')?.remove();var paused=state.timer?.paused;document.body.insertAdjacentHTML('beforeend','\n<div class="timer-overlay" id="timer-overlay">\n <button class="timer-close" onclick="closeTimerOverlay()">✕</button>\n <div class="timer-label" id="timer-label">'+(paused?'已暂停':'正在专注')+'</div>\n <div class="timer-task">'+esc(t.title)+'</div>\n <div class="timer-ring">'+ringSvg(0,200,6,'ring-fill')+'<div class="timer-display" id="timer-display">'+timerClock(taskActualMs(taskId))+'</div></div>\n <div class="timer-actions"><button class="btn-secondary" id="timer-toggle" onclick="'+(paused?'resumeTimer()':'pauseTimer()')+'">'+(paused?'▶ 继续':'⏸ 暂停')+'</button><button class="btn-primary" onclick="finishTask(\''+taskId+'\')">✓ 结束</button></div>\n</div>');cancelAnimationFrame(_timerRAF);_timerRAF=requestAnimationFrame(timerOverlayTick)}
-function closeTimerOverlay(){cancelAnimationFrame(_timerRAF);document.getElementById('timer-overlay')?.remove();render()}
-function timerOverlayTick(){if(!state.timer)return;var totalMs=taskActualMs(state.timer.taskId),el=document.getElementById('timer-display');if(el)el.textContent=timerClock(totalMs);var task=state.tasks.find(function(x){return x.id===state.timer.taskId}),totalEst=(+task?.estimate||60)*60000,pct=Math.min(1,totalMs/totalEst),ring=document.querySelector('#timer-overlay .ring-fill');if(ring){var r=(200-6)/2,c=2*Math.PI*r;ring.setAttribute('stroke-dashoffset',c*(1-pct))}_timerRAF=requestAnimationFrame(timerOverlayTick)}
+function persist() { localStorage.setItem(KEY, JSON.stringify(state)); }
+function save() { persist(); render(); }
+function esc(value = '') { return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
+function minutes(ms) { return Math.round((+ms || 0) / 60000); }
+function hours(value) { const number = Math.max(0, +value || 0); return (number / 60).toFixed(number % 60 ? 1 : 0) + 'h'; }
 
-/* ════════════════════════════════════════════
-   滑动操作
-   ════════════════════════════════════════════ */
-function swipeStart(e,taskId){var item=document.getElementById('task-item-'+taskId);if(!item)return; _swipeState={taskId:taskId,item:item,startX:e.touches?e.touches[0].clientX:e.clientX,startY:e.touches?e.touches[0].clientY:e.clientY,offset:0}}
-function swipeMove(e){if(!_swipeState)return;var clientX=e.touches?e.touches[0].clientX:e.clientX,clientY=e.touches?e.touches[0].clientY:e.clientY,dx=clientX-_swipeState.startX,dy=clientY-_swipeState.startY;if(Math.abs(dy)>Math.abs(dx))return; e.preventDefault();var offset=Math.min(0,Math.max(-144,dx));_swipeState.offset=offset;_swipeState.item.style.transform='translateX('+offset+'px)'}
-function swipeEnd(){if(!_swipeState)return;var offset=_swipeState.offset; if(offset<-100)_swipeState.item.style.transform='translateX(-144px)';else _swipeState.item.style.transform='translateX(0)'; _swipeState=null}
-function bindSwipes(){document.querySelectorAll('.task-row-wrap').forEach(function(wrap){var item=wrap.querySelector('.task-item');if(!item)return;var taskId=wrap.dataset.taskId;item.addEventListener('touchstart',function(e){swipeStart(e,taskId)},{passive:false});item.addEventListener('touchmove',swipeMove,{passive:false});item.addEventListener('touchend',swipeEnd)})}
+function durationText(ms) {
+  const seconds = Math.max(0, Math.floor((+ms || 0) / 1000));
+  if (seconds < 60) return seconds + '秒';
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return mins + '分钟';
+  const hour = Math.floor(mins / 60);
+  const rest = mins % 60;
+  return hour + '小时' + (rest ? rest + '分钟' : '');
+}
 
-/* ════════════════════════════════════════════
-   渲染
-   ════════════════════════════════════════════ */
-function render(){var pages={today:pageToday,week:pageWeek,reports:pageReports,settings:pageSettings}; $('#app').innerHTML=pages[view]()+(view==='settings'?'':dockHtml())+navHtml();if(view==='week')bindSwipes();if(state.timer&&view==='today')tickInline()}
-function dockHtml(){return '<form class="input-dock" onsubmit="submitCapture(event)"><input id="capture-input" autocomplete="off" placeholder="告诉秘书…" value="'+esc(draftText)+'"><button class="send" aria-label="发送">↑</button></form>'}
-function navHtml(){var tabs=[{view:'today',label:'今天',icon:'🏠'},{view:'week',label:'本周',icon:'📅'},{view:'reports',label:'周报',icon:'📊'},{view:'settings',label:'设置',icon:'⚙️'}]; return '<nav class="nav">'+tabs.map(function(t){return '\n <button class="'+(view===t.view?'active':'')+'" onclick="go(\''+t.view+'\')"><span class="nav-icon">'+t.icon+'</span>'+t.label+'</button>'}).join('')+'</nav>'}
-function go(v){view=v;render()} function settings(){go('settings')}
+function dateText() {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date());
+}
 
-/* 内联计时器刷新 */
-function tickInline(){if(!state.timer)return;var el=$('#timer-text');if(!el||view!=='today')return;el.textContent=timerClock(taskActualMs(state.timer.taskId));setTimeout(function(){tickInline()},500)}
+function dayText(date) {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short' }).format(new Date(date + 'T12:00:00'));
+}
 
-/* ════════════════════════════════════════════
-   输入解析
-   ════════════════════════════════════════════ */
-async function submitCapture(e){e.preventDefault();var input=$('#capture-input');draftText=input.value.trim();if(!draftText){toast('先告诉秘书一件事');return}try{await parseInput(draftText)}catch(error){close();toast('发送失败，请检查网络后重试');console.error('秘书输入处理失败',error)}}
-async function parseInput(text){open('<h2>秘书正在整理</h2><p>正在判断任务、项目、依赖、本周容量与建议日期。</p><div class="notice">'+esc(text)+'</div>');var items=[],source='AI';try{items=state.settings.apiKey?await aiParse(text):heuristic(text);if(!state.settings.apiKey)source='本地规则'}catch(e){items=heuristic(text);source='本地规则';toast('AI 暂不可用，已使用本地规则')}items=prepareSchedule(items);showDraft(items,source)}
-function heuristic(text){return text.split(/[，,、；;\n]/).map(function(part){return part.trim()}).filter(function(part){return part.length>1}).map(function(part){var life=/姐姐|朋友|老公|家里|被单|被套|大扫除|家庭财务|吃饭|聊天/.test(part),later=/下周|以后|暂缓|先录入|没办法完成/.test(part),clean=part.replace(/这周|需要|完成|安排|先录入|下周|估计没办法完成/g,' ').trim();return {title:clean,type:life?'life':'work',status:later?'later':'committed',project:'',estimate:life?30:60,kind:life&&/姐姐|朋友|老公|聊天|吃饭/.test(part)?'relation':life?'home':'other',dependsOn:[],priority:3,reason:later?'用户表达为下周或以后':'用户表达为本周'}})}
-async function aiParse(text){var context={today:isoDate(),weekStart:currentWeekStart(),nextWeekStart:nextWeekStart(),remainingCapacityMinutes:Math.round(remaining()),rules:['没有观察区','周六不安排工作','日期由秘书建议','明确依赖必须严格遵守','生活不占工作专注容量'],existing:activeTasks().map(function(t){return {title:t.title,project:t.project,status:label(t.status),estimate:t.estimate,remaining:Math.round(taskPendingMinutes(t)),plannedDate:t.plannedDate}})},prompt='请解析用户输入并提出可确认的排程。每个事项字段：title,type(work|life),status(committed|later),project,estimate(分钟整数),kind(relation|home|other),dependsOn(前置事项标题数组),priority(1最高到5最低),plannedDate(YYYY-MM-DD),reason。不要拆成细步骤。用户输入：'+text+'\n上下文：'+JSON.stringify(context),r=await fetch('https://api.deepseek.com/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.apiKey},body:JSON.stringify({model:'deepseek-chat',temperature:.2,response_format:{type:'json_object'},messages:[{role:'system',content:'你是直接、现实的中文个人秘书。只输出 {"items":[...]}。本周超容量也不要自行编造观察区；保留用户本周意图，容量冲突由界面要求用户确认取舍。依赖顺序优先于日期。'},{role:'user',content:prompt}]})});if(!r.ok)throw Error('API');var data=await r.json(),parsed=JSON.parse(data.choices[0].message.content);return Array.isArray(parsed.items)?parsed.items:[]}
-function nextSchedulableDate(date){var d=date||isoDate();while(new Date(d+'T12:00:00').getDay()===6)d=addDays(d,1);return d}
-function prepareSchedule(items){var dayCounts={},lastDate=nextSchedulableDate(isoDate()),prepared=(items||[]).filter(function(x){return x&&String(x.title||'').trim()}).map(function(x){var item={...x,title:String(x.title).trim(),type:x.type==='life'?'life':'work',status:x.status==='later'||x.status==='next_week'?'later':'committed',estimate:Math.max(5,+x.estimate||60),dependsOn:Array.isArray(x.dependsOn)?x.dependsOn:[],priority:Math.min(5,Math.max(1,+x.priority||3))};if(item.status==='later'){item.plannedDate=nextSchedulableDate(nextWeekStart());return item}var proposed=/^\d{4}-\d{2}-\d{2}$/.test(item.plannedDate||'')?item.plannedDate:lastDate;if(proposed<isoDate())proposed=isoDate();proposed=nextSchedulableDate(proposed);while((dayCounts[proposed]||0)>=3)proposed=nextSchedulableDate(addDays(proposed,1));item.plannedDate=proposed;dayCounts[proposed]=(dayCounts[proposed]||0)+1;lastDate=proposed;return item}),byTitle={};prepared.forEach(function(x){byTitle[x.title]=x});prepared.forEach(function(x){(x.dependsOn||[]).forEach(function(name){var dep=byTitle[name]||state.tasks.find(function(t){return t.title===name});if(dep&&dep.plannedDate&&x.status==='committed'&&x.plannedDate<=dep.plannedDate)x.plannedDate=nextSchedulableDate(addDays(dep.plannedDate,1))})});return prepared}
-function draftPayload(items){return encodeURIComponent(JSON.stringify(items))}
-function readDraftEstimates(items){items.forEach(function(x,i){x.estimate=+document.querySelector('#est-'+i)?.value||x.estimate||60});return items}
-function showDraft(items,source){var newWork=items.filter(function(x){return x.type==='work'&&x.status==='committed'}).reduce(function(n,x){return n+(+x.estimate||0)},0),overBy=Math.max(0,newWork-remaining()),replacement=activeTasks().filter(function(t){return !['active','paused','blocked'].includes(t.status)}).sort(function(a,b){return (b.priority||3)-(a.priority||3)||taskPendingMinutes(b)-taskPendingMinutes(a)})[0],body=items.map(function(x,i){var dep=x.dependsOn?.length?' · 依赖 '+esc(x.dependsOn.join('、')):'';return '\n <div class="task-draft"><div class="draft-title">'+esc(x.title)+'</div><div class="draft-meta">'+(x.type==='life'?'生活安排':'工作')+' · '+label(x.status)+(x.project?' · 建议归入 '+esc(x.project):'')+' · '+esc(x.plannedDate||'待安排')+dep+' · 预估 <input id="est-'+i+'" type="number" min="5" value="'+(x.estimate||60)+'"> 分钟</div><div class="draft-reason">'+esc(x.reason||'按当前顺序安排')+'</div></div>'}).join(''),payload=draftPayload(items),decision=overBy>0?'<div class="notice warn">不能把这些事项全部塞进本周：预计超出 '+hours(overBy)+'。'+(replacement?'要插入它，建议把「'+esc(replacement.title)+'」顺延到下周。':'建议把新事项放到下周，或明确开启例外冲刺。')+'</div>'+(replacement?'<button class="btn-primary" onclick="replaceAndConfirm(\''+payload+'\',\''+replacement.id+'\')">顺延「'+esc(replacement.title)+'」并录入</button>':'')+'<button class="btn-secondary" style="width:100%" onclick="moveNewToNextWeek(\''+payload+'\')">新工作全部放到下周</button><button class="btn-secondary" style="width:100%" onclick="confirmDraft(\''+payload+'\',true)">明确开启例外冲刺</button>':'<button class="btn-primary" onclick="confirmDraft(\''+payload+'\',false)">确认这份排程</button>';close();open('<h2>秘书建议这样安排</h2><p>'+esc(source)+' 已结合日期、容量和依赖给出建议；你确认后才生效。</p>'+body+decision+'<button class="btn-text" onclick="close()">返回修改</button>')}
-function label(s){return ({committed:'本周承诺',later:'下周',blocked:'受阻',done:'已完成',active:'进行中',paused:'已暂停'}[s]||s)}
-function decodeDraft(payload){return JSON.parse(decodeURIComponent(payload))}
-function confirmDraft(payload,sprint){var items=readDraftEstimates(decodeDraft(payload)),newWork=items.filter(function(x){return x.type==='work'&&x.status==='committed'}).reduce(function(n,x){return n+(+x.estimate||0)},0);if(!sprint&&newWork>remaining()){showDraft(items,'容量复核');toast('修改后的估时超过本周容量，请先取舍');return}var created=[],titleMap={};state.tasks.forEach(function(t){titleMap[t.title]=t.id});items.filter(function(x){return x.type==='work'}).forEach(function(x){var task={id:id(),title:x.title,project:x.project||'',estimate:x.estimate,remaining:0,status:x.status,priority:x.priority||3,createdAt:new Date().toISOString(),weekStart:x.status==='later'?nextWeekStart():currentWeekStart(),plannedDate:x.plannedDate||isoDate(),dependsOn:[],blockedReason:''};created.push({task:task,names:x.dependsOn||[]});titleMap[task.title]=task.id;state.tasks.push(task)});created.forEach(function(entry){var missing=[];entry.task.dependsOn=entry.names.map(function(name){if(titleMap[name])return titleMap[name];missing.push(name);return null}).filter(Boolean);if(missing.length){entry.task.status='blocked';entry.task.blockedReason='等待 '+missing.join('、')}});items.filter(function(x){return x.type==='life'}).forEach(function(x){state.life.push({id:id(),title:x.title,kind:x.kind||'home',estimate:x.estimate,status:'planned',when:x.plannedDate||'本周找合适时间',plannedDate:x.plannedDate||isoDate(),weekStart:x.status==='later'?nextWeekStart():currentWeekStart()})});if(sprint&&!state.specialWeeks.includes(currentWeekStart()))state.specialWeeks.push(currentWeekStart());draftText='';close();save();toast(sprint?'已按例外冲刺录入，本周会单独标记':'已按建议排程录入')}
-function replaceAndConfirm(payload,taskId){var old=state.tasks.find(function(t){return t.id===taskId});if(old){old.status='later';old.weekStart=nextWeekStart();old.plannedDate=nextSchedulableDate(nextWeekStart())}confirmDraft(payload,false)}
-function moveNewToNextWeek(payload){var items=decodeDraft(payload).map(function(x){return x.type==='work'?{...x,status:'later',plannedDate:nextSchedulableDate(nextWeekStart())}:x});confirmDraft(draftPayload(items),false)}
+function label(status) {
+  return ({ committed: '本周承诺', later: '下周', blocked: '受阻', done: '已完成', active: '进行中', paused: '已暂停', cancelled: '已取消' }[status] || status);
+}
 
-/* ════════════════════════════════════════════
-   计时器操作
-   ════════════════════════════════════════════ */
-function recordActiveSegment(){if(!state.timer||state.timer.paused||!state.timer.startedAt)return;var endedAt=new Date().toISOString(),durationMs=Math.max(0,new Date(endedAt)-new Date(state.timer.startedAt));state.sessions.push({id:id(),taskId:state.timer.taskId,startedAt:state.timer.startedAt,endedAt:endedAt,durationMs:durationMs,weekStart:weekStartOf(state.timer.startedAt)})}
-function startTimer(taskId){if(state.timer&&state.timer.taskId!==taskId){toast('当前还有一件暂停或进行中的工作，请先结束它');return}var t=state.tasks.find(function(x){return x.id===taskId});if(!t)return;if(!dependencyReady(t)){toast('前置事项还没完成，暂时不能开始');return}if(!state.timer)state.timer={taskId:taskId,startedAt:new Date().toISOString(),paused:false};else if(state.timer.paused){state.timer.startedAt=new Date().toISOString();state.timer.paused=false}t.status='active';persist();render();openTimerOverlay(taskId)}
-function pauseTimer(){if(!state.timer||state.timer.paused)return;recordActiveSegment();state.timer.startedAt=null;state.timer.paused=true;var t=state.tasks.find(function(x){return x.id===state.timer.taskId});if(t)t.status='paused';persist();render();openTimerOverlay(state.timer.taskId);toast('已暂停，累计投入 '+durationText(taskActualMs(state.timer.taskId)))}
-function resumeTimer(){if(!state.timer||!state.timer.paused)return;state.timer.startedAt=new Date().toISOString();state.timer.paused=false;var t=state.tasks.find(function(x){return x.id===state.timer.taskId});if(t)t.status='active';persist();render();openTimerOverlay(state.timer.taskId)}
+function projectStatusLabel(status) {
+  return ({ fixed: '固定基本盘', focus: '本月最高重点', secondary: '本月次重点', maintenance: '最低必要维护', low: '低频推进', opportunity: '机会型投入', paused: '暂停保存' }[status] || status);
+}
 
-/* ════════════════════════════════════════════
-   任务操作
-   ════════════════════════════════════════════ */
-function finishTask(taskId){if(state.timer?.taskId===taskId){recordActiveSegment();state.timer=null;persist();cancelAnimationFrame(_timerRAF);document.getElementById('timer-overlay')?.remove()}var t=state.tasks.find(function(x){return x.id===taskId});if(!t)return;open('<h2>这件事完成了吗？</h2><p>未完成也不是失败。告诉秘书还需多久。</p><div class="notice">'+esc(t.title)+' · 已投入 '+durationText(taskActualMs(taskId))+'</div><div class="row" style="margin-top:16px"><button class="btn-secondary" onclick="markRemaining(\''+taskId+'\')">还没完成</button><button class="btn-primary" onclick="markDone(\''+taskId+'\')">已完成</button></div>')}
-function markDone(taskId){var t=state.tasks.find(function(x){return x.id===taskId});t.status='done';t.completedAt=new Date().toISOString();close();save();toast('完成已记录 ✓')}
-function markRemaining(taskId){var t=state.tasks.find(function(x){return x.id===taskId});close();open('<h2>还需要多久？</h2><p>校准预估，不是自我批评。</p><div class="field"><label>预计剩余分钟</label><input id="remain" type="number" min="5" value="'+(t.remaining||t.estimate||60)+'"></div><button class="btn-primary" onclick="saveRemaining(\''+taskId+'\')">保存并重排</button>')}
-function saveRemaining(taskId){var t=state.tasks.find(function(x){return x.id===taskId});t.remaining=+$('#remain').value||0;t.status='committed';close();save();toast(remaining()<0?'剩余工作已更新，本周已超容量，需要重排':'剩余工作已纳入本周')}
-function lifeDone(i){var x=state.life.find(function(x){return x.id===i});x.status='done';save();toast('已记录。生活不是 KPI。')}
-function taskMenu(i){var t=state.tasks.find(function(x){return x.id===i});open('<h2>'+esc(t.title)+'</h2><p>'+(t.project?'项目：'+esc(t.project):'尚未归属项目')+'</p><button class="btn-secondary" onclick="blockTask(\''+i+'\')">标记受阻</button><button class="btn-secondary danger" onclick="removeTask(\''+i+'\')">删除此项</button>')}
-function blockTask(i){var t=state.tasks.find(function(x){return x.id===i});t.status='blocked';close();save();toast('已标记受阻，不再占用今日目标。')}
-function removeTask(i){state.tasks=state.tasks.filter(function(x){return x.id!==i});close();save();toast('已移除')}
-function planWeek(){var rem=remaining();open('<h2>本周容量检查</h2><p>秘书不会默默把新事塞进你的一周。</p><div class="notice '+(rem<0?'warn':'')+'">'+(rem>=0?'还可承诺 '+hours(rem)+'。':'本周已超容量 '+hours(-rem)+'。需要顺延、降级，或明确开启例外冲刺。')+'</div><p>周日 20:00-23:30 是默认规划窗口。周六不安排工作承诺。</p><button class="btn-primary" onclick="close()">我知道了</button>')}
+function toast(text) {
+  const element = $('#toast');
+  if (!element) return;
+  element.textContent = text;
+  element.classList.add('show');
+  clearTimeout(element._timer);
+  element._timer = setTimeout(() => element.classList.remove('show'), 3000);
+}
 
-/* ════════════════════════════════════════════
-   导出
-   ════════════════════════════════════════════ */
-function download(name,type,data){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:type}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
-function exportMenu(){open('<h2>导出与备份</h2><p>导出后可换手机恢复。请妥善保管，JSON 包含本地设置。</p><button class="btn-primary" onclick="download(\'未尽-完整备份.json\',\'application/json\',JSON.stringify(state,null,2));close()">导出完整 JSON</button><button class="btn-secondary" style="margin-top:9px;width:100%" onclick="exportMd()">导出本周周报 Markdown</button><button class="btn-secondary" style="margin-top:9px;width:100%" onclick="exportCsv()">导出任务 CSV</button>')}
-function exportMd(){var r=buildReport(),draft=state.reportDrafts?.[r.weekStart]||localReport(r),md='# 未尽 · 本周周报\n\n- 完成：'+r.done+'/'+r.total+'\n- 实际专注：'+durationText(r.actualMs)+'\n- 估时偏差：'+r.bias+'\n\n## 工作承诺\n'+r.tasks.map(function(t){return '- '+t.title+'：'+label(t.status)}).join('\n')+'\n\n## 生活安排（不计工作容量）\n'+r.life.map(function(x){return '- '+x.title+'：'+(x.status==='done'?'已完成':'本周安排')}).join('\n')+'\n\n## 秘书的判断\n'+draft.judgment+'\n\n## 下周建议\n'+draft.suggestions.map(function(x){return '- '+x}).join('\n')+'\n';download('未尽-本周周报.md','text/markdown;charset=utf-8',md);close()}
-function exportCsv(){var rows=['任务,项目,状态,预计分钟,剩余分钟'];state.tasks.forEach(function(t){rows.push([t.title,t.project,label(t.status),t.estimate,t.remaining||''].map(function(v){return '"'+String(v).replace(/"/g,'""')+'"'}).join(','))});download('未尽-任务.csv','text/csv;charset=utf-8','﻿'+rows.join('\n'));close()}
-function saveSettings(){state.settings.apiKey=$('#api-key').value.trim();state.settings.capacity=+$('#capacity').value||10;save();toast('设置已保存在本机')}
+function open(html) {
+  document.querySelector('.sheet-backdrop')?.remove();
+  document.body.insertAdjacentHTML('beforeend', '<div class="sheet-backdrop" onclick="if(event.target===this)this.remove()"><section class="sheet">' + html + '</section></div>');
+}
 
-/* ════════════════════════════════════════════
-   PWA
-   ════════════════════════════════════════════ */
-async function installApp(){if(deferredInstallPrompt){deferredInstallPrompt.prompt();var result=await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;toast(result.outcome==='accepted'?'正在安装未尽':'已取消安装');return}open('<h2>安装未尽</h2><p>请用 Chrome 打开本页，点击右上角菜单，选择"安装应用"或"安装未尽"。</p><button class="btn-primary" onclick="close()">我知道了</button>')}
-window.addEventListener('beforeinstallprompt',function(event){event.preventDefault();deferredInstallPrompt=event;render()});window.addEventListener('appinstalled',function(){deferredInstallPrompt=null;toast('未尽已安装到桌面')});
+function close() { document.querySelector('.sheet-backdrop')?.remove(); }
 
-/* ════════════════════════════════════════════
-   启动
-   ════════════════════════════════════════════ */
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=5');
+/* ── 容量、依赖与时间 ── */
+function taskPool(task) { return task.capacityPool || (task.project === '主业' ? 'main' : 'personal'); }
+function inCurrentWeek(item) { return (item.weekStart || currentWeekStart()) === currentWeekStart(); }
+
+function activeTasks(pool) {
+  return state.tasks.filter(task => inCurrentWeek(task)
+    && ['committed', 'active', 'paused', 'blocked'].includes(task.status)
+    && (!pool || taskPool(task) === pool));
+}
+
+function taskActualMs(taskId) {
+  let saved = state.sessions.filter(session => session.taskId === taskId).reduce((sum, session) => sum + (+session.durationMs || 0), 0);
+  if (state.timer && state.timer.taskId === taskId && !state.timer.paused && state.timer.startedAt) {
+    saved += Math.max(0, Date.now() - new Date(state.timer.startedAt));
+  }
+  return saved;
+}
+
+function usedMinutes(pool) {
+  const ids = new Set(state.tasks.filter(task => !pool || taskPool(task) === pool).map(task => task.id));
+  let total = state.sessions.filter(session => weekStartOf(session.startedAt) === currentWeekStart() && ids.has(session.taskId))
+    .reduce((sum, session) => sum + (+session.durationMs || 0), 0);
+  if (state.timer && !state.timer.paused && weekStartOf(state.timer.startedAt) === currentWeekStart() && ids.has(state.timer.taskId)) {
+    total += Math.max(0, Date.now() - new Date(state.timer.startedAt));
+  }
+  return total / 60000;
+}
+
+function taskPendingMinutes(task) {
+  if (task.status === 'done' || task.status === 'cancelled') return 0;
+  if (+task.remaining > 0) return +task.remaining;
+  return Math.max(0, (+task.estimate || 0) - taskActualMs(task.id) / 60000);
+}
+
+function capacityHours(pool) { return pool === 'main' ? state.settings.mainCapacity : state.settings.personalCapacity; }
+function committedForecastMinutes(pool) { return usedMinutes(pool) + activeTasks(pool).reduce((sum, task) => sum + taskPendingMinutes(task), 0); }
+function remaining(pool = 'personal') { return capacityHours(pool) * 60 - committedForecastMinutes(pool); }
+function usedPct(pool) { const capacity = capacityHours(pool) * 60; return capacity ? Math.min(1, usedMinutes(pool) / capacity) : 0; }
+
+function dependencyReady(task) {
+  const internalReady = (task.dependsOn || []).every(depId => state.tasks.find(item => item.id === depId)?.status === 'done');
+  return internalReady && !(task.externalConditions || []).length && !task.blockedReason;
+}
+
+function overdueTasks() {
+  const today = isoDate();
+  return state.tasks.filter(task => inCurrentWeek(task)
+    && ['committed', 'active', 'paused'].includes(task.status)
+    && task.plannedDate < today
+    && !(state.timer && state.timer.taskId === task.id));
+}
+
+function todayTasks() {
+  const today = isoDate();
+  return state.tasks.filter(task => inCurrentWeek(task)
+    && ['committed', 'active', 'paused'].includes(task.status)
+    && task.plannedDate === today
+    && dependencyReady(task))
+    .sort((a, b) => (a.priority || 9) - (b.priority || 9))
+    .slice(0, 3);
+}
+
+function nextSchedulableDate(date, type = 'work') {
+  let result = date || isoDate();
+  if (type === 'life') return result;
+  while (new Date(result + 'T12:00:00').getDay() === 6) result = addDays(result, 1);
+  return result;
+}
+
+function ringSvg(pct, size, strokeWidth, className) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  return '<svg viewBox="0 0 ' + size + ' ' + size + '"><circle class="ring-bg" cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + radius + '" stroke-width="' + strokeWidth + '"/><circle class="' + className + '" cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + radius + '" stroke-width="' + strokeWidth + '" stroke-dasharray="' + circumference + '" stroke-dashoffset="' + circumference * (1 - pct) + '"/></svg>';
+}
+
+function empty(icon, title, hint) {
+  return '<div class="empty-state"><div class="empty-icon">' + icon + '</div><div class="empty-label">' + title + '</div><div class="empty-hint">' + hint + '</div></div>';
+}
+
+/* ── 今日页 ── */
+function pageToday() {
+  const work = todayTasks();
+  const life = state.life.filter(item => inCurrentWeek(item) && item.status === 'planned' && item.plannedDate === isoDate()).slice(0, 3);
+  const running = state.timer && state.tasks.find(task => task.id === state.timer.taskId);
+  const overdue = overdueTasks();
+  const subtitle = running ? (state.timer.paused ? '这件事已暂停' : '专注在这一件事上') : '今天，先做这一件';
+  return '\n<header class="masthead"><div><div class="brand">未尽</div><div class="brand-subtitle">你的个人 AI 秘书</div></div><button class="leaf-mark" onclick="settings()" aria-label="设置">⚙️</button></header>'
+    + '<div class="date-line">' + dateText() + ' · ' + subtitle + '</div>'
+    + (overdue.length ? '<button class="overdue-card" onclick="startOverdueReview()"><span><b>昨天留下了 ' + overdue.length + ' 件事</b><small>秘书先给处理建议，你只需确认</small></span><span>去处理 ›</span></button>' : '')
+    + '<section class="panel"><div class="panel-label"><span class="emoji">📋</span> 工作</div>'
+    + (running ? timerInlineHtml(running) : work[0] ? focusCardHtml(work[0], work.slice(1)) : empty('📝', '今天还没有确认的工作', '去「秘书」沟通，确认后才会进入今天。')) + '</section>'
+    + '<section class="panel"><div class="panel-label"><span class="emoji">🌿</span> 生活</div>'
+    + (life.length ? life.map(lifeRowHtml).join('') : empty('🌸', '今天没有生活安排', '关系和生活会占用时间，但不作为工作 KPI。')) + '</section>'
+    + eveningSummaryHtml();
+}
+
+function focusCardHtml(task, next) {
+  const actual = taskActualMs(task.id);
+  const time = actual > 0 ? '已投入 ' + durationText(actual) + ' · 预计剩余约 ' + hours(taskPendingMinutes(task)) : '预计 ' + hours(+task.estimate || 0);
+  return '<div class="focus-main"><div class="priority-badge">1</div><div class="focus-copy"><div class="task-name">' + esc(task.title) + '</div><div class="meta">' + time + '</div></div></div>'
+    + '<button class="btn-primary" style="margin-top:12px" onclick="startTimer(\'' + task.id + '\')">▶&nbsp;&nbsp;' + (task.status === 'paused' ? '继续计时' : '开始计时') + '</button>'
+    + (next.length ? '<div class="next-tasks">' + next.map((item, index) => '<button class="next-task" onclick="startTimer(\'' + item.id + '\')"><span class="seq">' + (index + 2) + '</span><span class="title">' + esc(item.title) + '</span><span class="arrow">›</span></button>').join('') + '</div>' : '');
+}
+
+function timerInlineHtml(task) {
+  return '<div style="text-align:center;padding:4px 0"><div class="meta" style="margin-bottom:4px">' + (state.timer.paused ? '已暂停' : '正在专注') + '</div><div class="timer-inline-title">' + esc(task.title) + '</div><div id="timer-text" class="timer-inline-clock">' + timerClock(taskActualMs(task.id)) + '</div><button class="btn-primary" onclick="openTimerOverlay(\'' + task.id + '\')">打开专注面板</button></div>';
+}
+
+function lifeRowHtml(item) {
+  return '<div class="life-item"><div class="life-icon">' + (item.kind === 'relation' ? '💬' : '🏠') + '</div><div class="item-main"><div class="item-title">' + esc(item.title) + '</div><div class="meta">' + (item.when || dayText(item.plannedDate)) + (item.estimate ? ' · 约 ' + hours(item.estimate) : '') + '</div></div><button class="life-arrow" onclick="lifeDone(\'' + item.id + '\')">›</button></div>';
+}
+
+function eveningSummaryHtml() {
+  const [hour, minute] = String(state.settings.reminderTime || '22:30').split(':').map(Number);
+  const now = new Date();
+  if (now.getHours() * 60 + now.getMinutes() < hour * 60 + minute) return '';
+  const today = isoDate();
+  const invested = state.sessions.filter(session => isoDate(session.startedAt) === today).reduce((sum, session) => sum + (+session.durationMs || 0), 0);
+  const left = activeTasks().filter(task => task.status !== 'blocked').length;
+  const tomorrow = addDays(today, 1);
+  const next = state.tasks.filter(task => inCurrentWeek(task) && task.plannedDate === tomorrow && ['committed', 'active', 'paused'].includes(task.status)).sort((a, b) => (a.priority || 9) - (b.priority || 9))[0];
+  return '<section class="daily-summary"><div class="eyebrow">今日小结</div><p>今天投入了 <b>' + durationText(invested) + '</b>；本周还有 <b>' + left + '</b> 件未完成；明天最值得先做的是 <b>' + esc(next?.title || '尚未确认') + '</b>。</p></section>';
+}
+
+/* ── 本周日历 ── */
+function pageWeek() {
+  const personalRemaining = remaining('personal');
+  const mainRemaining = remaining('main');
+  const days = Array.from({ length: 7 }, (_, index) => addDays(currentWeekStart(), index));
+  const nextItems = state.tasks.filter(task => task.status === 'later' || task.weekStart === nextWeekStart());
+  return '<header class="topbar"><div><div class="brand">本周</div><div class="subtitle">周一到周日，只显示确认后的安排</div></div><button class="btn-icon" onclick="beginSecretaryMode(\'weekly\')">＋</button></header>'
+    + '<div class="capacity-grid">' + capacityCardHtml('个人项目', 'personal', personalRemaining) + capacityCardHtml('主业', 'main', mainRemaining) + '</div>'
+    + '<button class="btn-primary week-plan-button" onclick="beginSecretaryMode(\'weekly\')">和秘书做本周规划</button>'
+    + '<div class="week-calendar">' + days.map(dayCardHtml).join('') + '</div>'
+    + '<div class="section-title">下周事项 <span class="count">' + nextItems.length + ' 项</span></div>'
+    + '<div class="task-list">' + (nextItems.length ? nextItems.map(taskRowHtml).join('') : empty('📥', '下周还没有事项', '只有你确认放到下周的事情才会出现在这里。')) + '</div>';
+}
+
+function capacityCardHtml(title, pool, value) {
+  const pct = usedPct(pool);
+  return '<div class="capacity-card compact"><div class="capacity-ring">' + ringSvg(pct, 80, 8, 'ring-fill') + '<div class="ring-center">' + Math.round(pct * 100) + '%</div></div><div class="capacity-info"><div class="pool-name">' + title + '</div><div class="main-text">' + (value >= 0 ? '余 ' + hours(value) : '超 ' + hours(-value)) + '</div><div class="sub-text">可靠容量 ' + capacityHours(pool) + 'h</div></div></div>';
+}
+
+function dayCardHtml(date) {
+  const tasks = state.tasks.filter(task => inCurrentWeek(task) && task.plannedDate === date && task.status !== 'cancelled');
+  const life = state.life.filter(item => inCurrentWeek(item) && item.plannedDate === date);
+  const isToday = date === isoDate();
+  const isSaturday = new Date(date + 'T12:00:00').getDay() === 6;
+  return '<section class="day-card ' + (isToday ? 'is-today' : '') + '"><div class="day-head"><span>' + dayText(date) + '</span>' + (isToday ? '<b>今天</b>' : '') + '</div>'
+    + (tasks.length ? tasks.map(taskRowHtml).join('') : (isSaturday ? '<div class="rest-row">周六不排工作承诺</div>' : '<div class="day-empty">没有工作安排</div>'))
+    + (life.length ? '<div class="day-life">' + life.map(item => '<span>🌿 ' + esc(item.title) + '</span>').join('') + '</div>' : '') + '</section>';
+}
+
+function taskRowHtml(task) {
+  const actual = taskActualMs(task.id);
+  const remainingText = actual > 0 ? '已投入 ' + durationText(actual) + ' · 剩余约 ' + hours(taskPendingMinutes(task)) : '预计 ' + hours(+task.estimate || 0);
+  const dependencyNames = (task.dependsOn || []).map(depId => state.tasks.find(item => item.id === depId)?.title).filter(Boolean);
+  const blocked = task.status === 'blocked' || !dependencyReady(task);
+  const blockedText = task.blockedReason || (dependencyNames.length ? '等待 ' + dependencyNames.join('、') : '当前受阻');
+  return '<div class="task-row-wrap" data-task-id="' + task.id + '"><div class="swipe-bg"><div class="swipe-action swipe-done" onclick="event.stopPropagation();finishTask(\'' + task.id + '\')">✓</div><div class="swipe-action swipe-block" onclick="event.stopPropagation();blockTask(\'' + task.id + '\')">⊘</div></div><div class="task-item" id="task-item-' + task.id + '"><button class="btn-done" onclick="event.stopPropagation();finishTask(\'' + task.id + '\')">' + (task.status === 'done' ? '✓' : '○') + '</button><div class="item-main"><div class="item-title">' + esc(task.title) + '</div><div class="meta">' + esc(task.project || '未归属项目') + ' · ' + label(task.status) + ' · ' + remainingText + (blocked ? ' · ' + esc(blockedText) : '') + '</div></div><div class="item-actions">' + (!blocked && task.status !== 'done' ? '<button class="btn-sm" onclick="event.stopPropagation();startTimer(\'' + task.id + '\')">▶</button>' : '') + '<button class="btn-sm" onclick="event.stopPropagation();taskMenu(\'' + task.id + '\')">⋮</button></div></div></div>';
+}
+
+/* ── 秘书沟通页 ── */
+function pageSecretary() {
+  const secretary = state.secretary;
+  const session = secretary.session;
+  const messages = secretary.messages.slice(-40);
+  return '<header class="topbar secretary-head"><div><div class="brand">秘书</div><div class="subtitle">你说原话，我负责理解、追问和排程</div></div><button class="btn-icon" onclick="secretaryMenu()">⋯</button></header>'
+    + (!state.settings.apiKey ? '<button class="ai-error-card" onclick="go(\'settings\')"><b>DeepSeek 尚未连接</b><span>先去设置 API Key；没有 AI 时不会用标点拆分代替。</span></button>' : '')
+    + '<div class="secretary-actions"><button onclick="beginSecretaryMode(\'weekly\')">本周梳理</button><button onclick="beginSecretaryMode(\'midweek\')">新增事情</button><button onclick="beginSecretaryMode(\'change\')">情况变化</button></div>'
+    + (session ? '<div class="session-strip"><span>' + sessionLabel(session.mode) + '</span><small>' + sessionStatusLabel(session.status) + '</small></div>' : '')
+    + '<section class="conversation">' + (messages.length ? messages.map(messageHtml).join('') : secretaryWelcomeHtml()) + (secretary.busy ? busyMessageHtml() : '') + '</section>'
+    + (session?.suggestedProjects?.length ? suggestedProjectsHtml(session.suggestedProjects) : '')
+    + (secretary.error ? errorCardHtml(secretary.error) : '')
+    + (secretary.proposal ? proposalHtml(secretary.proposal) : '')
+    + (session && ['collecting', 'clarifying'].includes(session.status) && !secretary.proposal ? '<button class="finish-talking" onclick="finishCollecting()">我说完了，开始整理</button>' : '');
+}
+
+function secretaryWelcomeHtml() {
+  return '<div class="secretary-welcome"><div class="welcome-mark">未尽</div><h2>把事情原样告诉我</h2><p>可以很乱，也可以分几次说。我会先确认自己理解得对不对，再给排程；不会按逗号拆任务。</p></div>';
+}
+
+function suggestedProjectsHtml(projects) {
+  return '<section class="project-suggestions"><div class="proposal-kicker">秘书发现可能的新项目</div>' + projects.map((project, index) => '<div class="project-suggestion"><div><b>' + esc(project.name) + '</b><p>' + esc(project.reason || '') + '</p><small>' + esc(project.displaces || '新增项目不会自动获得本周容量') + '</small></div><div><button onclick="acceptSuggestedProject(' + index + ')">确认建立</button><button class="muted" onclick="rejectSuggestedProject(' + index + ')">不建立</button></div></div>').join('') + '</section>';
+}
+
+function acceptSuggestedProject(index) {
+  const suggestion = state.secretary.session?.suggestedProjects?.[index];
+  if (!suggestion || state.projects.some(project => project.name === suggestion.name)) return;
+  state.projects.push({ id: id(), name: suggestion.name, group: suggestion.group || '', status: 'opportunity', priority: 4, outcome: suggestion.reason || '等待本月复盘确认长期结果', monthlyBudgetMinutes: 0 });
+  state.secretary.session.suggestedProjects.splice(index, 1);
+  appendMessage('assistant', '已建立项目「' + suggestion.name + '」。它不会自动获得额外容量，具体事项仍要单独确认。');
+  save();
+}
+
+function rejectSuggestedProject(index) {
+  const suggestion = state.secretary.session?.suggestedProjects?.[index];
+  if (!suggestion) return;
+  state.secretary.session.suggestedProjects.splice(index, 1);
+  state.secretary.session.candidates.forEach(item => { if (item.project === suggestion.name) item.project = ''; });
+  if (state.secretary.proposal?.items) state.secretary.proposal.items.forEach(item => { if (item.project === suggestion.name) item.project = ''; });
+  save();
+}
+
+function messageHtml(message) {
+  return '<div class="message ' + (message.role === 'user' ? 'user' : 'assistant') + '"><div class="message-role">' + (message.role === 'user' ? '你' : '秘书') + '</div><div class="message-body">' + esc(message.text).replace(/\n/g, '<br>') + '</div><time>' + new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.createdAt)) + '</time></div>';
+}
+
+function busyMessageHtml() {
+  return '<div class="message assistant thinking"><div class="message-role">秘书</div><div class="message-body"><span></span><span></span><span></span> 正在核对项目、依赖和容量</div></div>';
+}
+
+function errorCardHtml(error) {
+  return '<section class="ai-failure"><b>这次没有处理成功</b><p>' + esc(error.message) + '</p><div class="row"><button class="btn-secondary" onclick="clearSecretaryError()">先保留原话</button><button class="btn-primary" onclick="retrySecretary()">重试</button></div></section>';
+}
+
+function sessionLabel(mode) {
+  return ({ weekly: '本周规划会话', midweek: '周中新增会话', change: '现实变化会话', overdue: '逾期处理会话', monthly: '月度项目复盘' }[mode] || '任务沟通');
+}
+
+function sessionStatusLabel(status) {
+  return ({ collecting: '继续说，暂未写入计划', clarifying: '正在补齐关键信息', scheduling: '正在形成建议', proposed: '等待你确认', confirmed: '已经确认' }[status] || '沟通中');
+}
+
+function secretaryMenu() {
+  open('<h2>秘书会话</h2><p>清空会话不会删除已经确认的任务、计时或周报。</p><button class="btn-secondary" onclick="newSecretarySession()">开始新的沟通</button><button class="btn-secondary danger" onclick="clearSecretaryHistory()">清空沟通记录</button>');
+}
+
+function proposalHtml(proposal) {
+  if (proposal.type === 'monthly') return monthlyProposalHtml(proposal);
+  const items = proposal.items || [];
+  const changes = proposal.changes || [];
+  const over = proposalOverCapacity(proposal);
+  return '<section class="proposal"><div class="proposal-kicker">秘书的建议 · 你确认后才生效</div><h2>' + esc(proposal.title || '这样安排最可信') + '</h2><p class="proposal-summary">' + esc(proposal.summary || '') + '</p>'
+    + (proposal.reasoning?.length ? '<ul class="reason-list">' + proposal.reasoning.map(reason => '<li>' + esc(reason) + '</li>').join('') + '</ul>' : '')
+    + (changes.length ? '<div class="proposal-block"><h3>需要调整已有计划</h3>' + changes.map(changeHtml).join('') + '</div>' : '')
+    + '<div class="proposal-block"><div class="proposal-block-head"><h3>' + (items.length ? '待确认事项' : '没有新增事项') + '</h3><button onclick="addProposalItem()">＋ 自加</button></div>' + items.map(proposalItemHtml).join('') + '</div>'
+    + (over ? '<div class="notice warn">' + esc(over) + '</div>' : '')
+    + '<div class="proposal-actions">' + (!over ? '<button class="btn-primary" onclick="confirmProposal(false)">确认并写入计划</button>' : '<button class="btn-primary" onclick="moveProposalToNextWeek()">新事项放到下周</button><button class="btn-secondary" onclick="confirmProposal(true)">明确开启例外冲刺</button>') + '<button class="btn-text" onclick="discardProposal()">继续和秘书讨论</button></div></section>';
+}
+
+function changeHtml(change) {
+  const task = state.tasks.find(item => item.id === change.taskId);
+  const action = change.action === 'next_week' ? '顺延到下周' : change.action === 'cancel' ? '取消' : change.action === 'activate' ? '解除受阻并安排到 ' + (change.plannedDate || '本周') : '调整到 ' + (change.plannedDate || '待定');
+  return '<div class="change-row editable-change"><button class="change-remove" onclick="removeProposalChange(\'' + change.taskId + '\')">×</button><div><b>' + esc(task?.title || change.title || '已有事项') + '</b><small>' + esc(action) + '</small></div><p>' + esc(change.reason || '') + '</p><div class="change-controls"><select onchange="setProposalChangeField(\'' + change.taskId + '\',\'action\',this.value)"><option value="move" ' + (change.action === 'move' ? 'selected' : '') + '>改日期</option><option value="next_week" ' + (change.action === 'next_week' ? 'selected' : '') + '>放下周</option><option value="cancel" ' + (change.action === 'cancel' ? 'selected' : '') + '>取消</option><option value="activate" ' + (change.action === 'activate' ? 'selected' : '') + '>解除受阻</option></select><input type="date" value="' + esc(change.plannedDate || '') + '" onchange="setProposalChangeField(\'' + change.taskId + '\',\'plannedDate\',this.value)"></div></div>';
+}
+
+function projectOptions(selected) {
+  const pending = selected && !state.projects.some(project => project.name === selected) ? '<option value="' + esc(selected) + '" selected>待确认新项目 / ' + esc(selected) + '</option>' : '';
+  return '<option value="">未归属项目</option>' + pending + state.projects.map(project => '<option value="' + esc(project.name) + '" ' + (project.name === selected ? 'selected' : '') + '>' + esc(project.group ? project.group + ' / ' + project.name : project.name) + '</option>').join('');
+}
+
+function proposalItemHtml(item) {
+  const dependencies = Array.isArray(item.dependsOn) ? item.dependsOn.join('、') : '';
+  return '<article class="proposal-item"><button class="proposal-remove" onclick="removeProposalItem(\'' + item.id + '\')" aria-label="删除">×</button>'
+    + '<div class="field"><label>事项名称</label><input value="' + esc(item.title) + '" onchange="setProposalField(\'' + item.id + '\',\'title\',this.value)"></div>'
+    + '<div class="proposal-grid"><div class="field"><label>归属</label><select onchange="setProposalField(\'' + item.id + '\',\'project\',this.value)">' + projectOptions(item.project) + '</select></div><div class="field"><label>类型</label><select onchange="setProposalField(\'' + item.id + '\',\'type\',this.value)"><option value="work" ' + (item.type !== 'life' ? 'selected' : '') + '>工作</option><option value="life" ' + (item.type === 'life' ? 'selected' : '') + '>生活</option></select></div></div>'
+    + '<div class="proposal-grid three"><div class="field"><label>预计分钟</label><input type="number" min="5" value="' + (+item.estimate || '') + '" onchange="setProposalField(\'' + item.id + '\',\'estimate\',this.value)"></div><div class="field"><label>安排日期</label><input type="date" value="' + esc(item.plannedDate || '') + '" onchange="setProposalField(\'' + item.id + '\',\'plannedDate\',this.value)"></div><div class="field"><label>位置</label><select onchange="setProposalField(\'' + item.id + '\',\'status\',this.value)"><option value="committed" ' + (item.status !== 'later' ? 'selected' : '') + '>本周</option><option value="later" ' + (item.status === 'later' ? 'selected' : '') + '>下周</option></select></div></div>'
+    + '<div class="field"><label>前置事项（用顿号分开）</label><input value="' + esc(dependencies) + '" placeholder="没有就留空" onchange="setProposalDependencies(\'' + item.id + '\',this.value)"></div>'
+    + (item.externalConditions?.length ? '<div class="dependency-note">外部条件：' + esc(item.externalConditions.join('、')) + '</div>' : '')
+    + '<p class="draft-reason">' + esc(item.reason || '') + '</p></article>';
+}
+
+/* ── 周报与月度项目复盘 ── */
+function pageReports() {
+  return '<header class="topbar"><div><div class="brand">复盘</div><div class="subtitle">事实、判断和下一步</div></div><button class="btn-icon" onclick="exportMenu()">⇩</button></header>'
+    + '<div class="segmented"><button class="' + (reportMode === 'weekly' ? 'active' : '') + '" onclick="setReportMode(\'weekly\')">本周周报</button><button class="' + (reportMode === 'monthly' ? 'active' : '') + '" onclick="setReportMode(\'monthly\')">月度项目</button></div>'
+    + (reportMode === 'weekly' ? weeklyReportHtml() : monthlyReportHtml());
+}
+
+function setReportMode(mode) { reportMode = mode; render(); }
+
+function weeklyReportHtml() {
+  const report = buildReport();
+  const draft = state.reportDrafts[currentWeekStart()];
+  return '<div class="kpis"><div class="kpi"><span class="kpi-num">' + report.done + '/' + report.total + '</span><span class="kpi-label">本周工作完成</span></div><div class="kpi"><span class="kpi-num">' + hours(report.actualMinutes) + '</span><span class="kpi-label">实际专注投入</span></div><div class="kpi"><span class="kpi-num">' + report.bias + '</span><span class="kpi-label">已完成项估时偏差</span></div><div class="kpi"><span class="kpi-num">' + hours(Math.max(0, remaining('personal'))) + '</span><span class="kpi-label">个人剩余容量</span></div></div>'
+    + '<section class="report-card"><h3>工作承诺</h3><ul class="report-list">' + (report.workLines || '<li>本周还没有工作承诺。</li>') + '</ul></section>'
+    + '<section class="report-card"><h3>生活安排 <small>不计工作 KPI</small></h3><ul class="report-list">' + (report.lifeLines || '<li>本周还没有生活安排。</li>') + '</ul></section>'
+    + '<section class="report-card"><h3>秘书的判断</h3><div class="report-advice"><p>' + (draft ? esc(draft.judgment) : '尚未调用 AI 生成判断。这里不会用固定模板冒充秘书。') + '</p></div>' + (draft ? '<small class="meta">' + esc(draft.sourceLabel) + '</small>' : '<button class="btn-secondary" onclick="generateWeeklyReport()">调用 AI 生成判断</button>') + '</section>'
+    + '<section class="report-card"><h3>下周建议</h3><ul class="report-suggest">' + (draft?.suggestions?.length ? draft.suggestions.map(item => '<li>' + esc(item) + '</li>').join('') : '<li>生成 AI 判断后给出针对性建议。</li>') + '</ul></section>'
+    + '<button class="btn-primary" onclick="saveReport()">保存本周周报快照</button>';
+}
+
+function monthlyReportHtml() {
+  const key = monthKey();
+  const stats = projectStats(key);
+  const review = state.monthlyReviews.find(item => item.month === key);
+  return '<section class="month-focus"><div class="eyebrow">本月配置</div><h2>不是所有项目都要同时向前</h2><p>月底由你重新决定重点，当前配置不会自动变成永久规则。</p></section>'
+    + '<div class="project-list">' + state.projects.map(project => {
+      const stat = stats.find(item => item.name === project.name) || { minutes: 0, income: 0 };
+      return '<article class="project-card ' + (project.status === 'paused' ? 'is-paused' : '') + '"><div><b>' + esc(project.name) + '</b>' + (project.group ? '<small>' + esc(project.group) + '</small>' : '') + '</div><span class="project-status">' + projectStatusLabel(project.status) + '</span><p>' + esc(project.outcome || '') + '</p><footer><span>投入 ' + hours(stat.minutes) + '</span><span>收入 ¥' + stat.income.toFixed(2) + '</span>' + (project.monthlyBudgetMinutes ? '<span>预算上限 ' + hours(project.monthlyBudgetMinutes) + '</span>' : '') + '</footer></article>';
+    }).join('') + '</div>'
+    + (review ? '<section class="report-card"><h3>本月秘书判断</h3><div class="report-advice"><p>' + esc(review.judgment) + '</p></div></section>' : '')
+    + '<div class="row month-actions"><button class="btn-secondary" onclick="recordIncome()">记录收入</button><button class="btn-primary" onclick="beginSecretaryMode(\'monthly\')">做月度项目复盘</button></div>';
+}
+
+function buildReport() {
+  const weekStart = currentWeekStart();
+  const tasks = state.tasks.filter(task => task.weekStart === weekStart && task.status !== 'later' && task.status !== 'cancelled');
+  const life = state.life.filter(item => item.weekStart === weekStart);
+  const done = tasks.filter(task => task.status === 'done');
+  const estimates = done.reduce((sum, task) => sum + (+task.estimate || 0), 0);
+  const actualMs = state.sessions.filter(session => weekStartOf(session.startedAt) === weekStart).reduce((sum, session) => sum + (+session.durationMs || 0), 0);
+  const doneActual = done.reduce((sum, task) => sum + taskActualMs(task.id) / 60000, 0);
+  const bias = estimates ? String(Math.round((doneActual - estimates) / estimates * 100)) + '%' : '暂无';
+  return {
+    weekStart,
+    total: tasks.length,
+    done: done.length,
+    actualMs,
+    actualMinutes: actualMs / 60000,
+    bias,
+    tasks,
+    life,
+    workLines: tasks.map(task => '<li class="' + (task.status === 'done' ? 'done' : '') + '">' + esc(task.title) + '<br><small>' + esc(task.project || '未归属') + ' · ' + label(task.status) + ' · 预计 ' + hours(task.estimate) + ' · 实际 ' + durationText(taskActualMs(task.id)) + '</small></li>').join(''),
+    lifeLines: life.map(item => '<li class="' + (item.status === 'done' ? 'done' : '') + '">' + esc(item.title) + '<br><small>' + (item.status === 'done' ? '已完成' : '本周安排') + ' · 不计工作容量</small></li>').join('')
+  };
+}
+
+function projectStats(month) {
+  return state.projects.map(project => {
+    const taskIds = new Set(state.tasks.filter(task => task.project === project.name).map(task => task.id));
+    const time = state.sessions.filter(session => monthKey(session.startedAt) === month && taskIds.has(session.taskId)).reduce((sum, session) => sum + (+session.durationMs || 0), 0) / 60000;
+    const income = state.incomeRecords.filter(record => record.month === month && record.project === project.name).reduce((sum, record) => sum + (+record.amount || 0), 0);
+    return { name: project.name, minutes: time, income };
+  });
+}
+
+/* ── 设置页 ── */
+function pageSettings() {
+  return '<header class="topbar"><div><div class="brand">设置</div><div class="subtitle">数据只保留在这台设备</div></div></header>'
+    + '<section class="setting-card"><div class="eyebrow">DeepSeek AI</div><p>当前模型：' + MODEL + '。密钥不会写进 GitHub 或导出的公开周报。</p><div class="field"><label>API Key</label><input id="api-key" type="password" placeholder="sk-..." value="' + esc(state.settings.apiKey) + '"></div><div class="row"><button class="btn-secondary" onclick="testDeepSeek()">测试连接</button><button class="btn-primary" onclick="saveSettings()">保存设置</button></div></section>'
+    + '<section class="setting-card"><div class="eyebrow">两个容量池</div><div class="row"><div class="field"><label>个人项目/周</label><input id="personal-capacity" type="number" min="1" max="100" value="' + state.settings.personalCapacity + '"></div><div class="field"><label>主业专注/周</label><input id="main-capacity" type="number" min="1" max="100" value="' + state.settings.mainCapacity + '"></div></div><p>初始按个人 7 小时、主业显式专注任务 20 小时；四周后用实际数据校准。</p><button class="btn-secondary" onclick="saveSettings()">更新容量</button></section>'
+    + '<section class="setting-card"><div class="eyebrow">每日小结</div><div class="field"><label>打开 App 后显示小结的时间</label><input id="reminder-time" type="time" value="' + esc(state.settings.reminderTime) + '"></div><p>PWA 没有后台服务时不会伪装成已推送；下次打开时仍可看到总结。</p><button class="btn-secondary" onclick="saveSettings()">保存时间</button></section>'
+    + '<section class="setting-card"><div class="eyebrow">数据</div><p>可导出完整备份。换手机前请先保存 JSON 文件。</p><button class="btn-secondary" onclick="exportMenu()">导出与备份</button></section>';
+}
+
+/* ── 渲染与导航 ── */
+function render() {
+  const pages = { today: pageToday, week: pageWeek, secretary: pageSecretary, reports: pageReports, settings: pageSettings };
+  $('#app').innerHTML = pages[view]() + (view === 'settings' ? '' : dockHtml()) + navHtml();
+  if (view === 'week') bindSwipes();
+  if (state.timer && view === 'today') tickInline();
+  if (view === 'secretary') setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 30);
+}
+
+function dockHtml() {
+  return '<form class="input-dock" onsubmit="submitSecretary(event)"><input id="secretary-input" autocomplete="off" placeholder="' + (view === 'secretary' ? '继续告诉秘书…' : '随时告诉秘书一件事…') + '" value="' + esc(draftText) + '"><button class="send" aria-label="发送">↑</button></form>';
+}
+
+function navHtml() {
+  const tabs = [
+    { view: 'today', label: '今天', icon: '⌂' },
+    { view: 'week', label: '本周', icon: '▦' },
+    { view: 'secretary', label: '秘书', icon: '✦' },
+    { view: 'reports', label: '复盘', icon: '◔' },
+    { view: 'settings', label: '设置', icon: '⚙' }
+  ];
+  return '<nav class="nav">' + tabs.map(tab => '<button class="' + (view === tab.view ? 'active' : '') + ' ' + (tab.view === 'secretary' ? 'secretary-tab' : '') + '" onclick="go(\'' + tab.view + '\')"><span class="nav-icon">' + tab.icon + '</span>' + tab.label + '</button>').join('') + '</nav>';
+}
+
+function go(nextView) { view = nextView; render(); }
+function settings() { go('settings'); }
+
+/* ── 秘书会话与 DeepSeek ── */
+function newSession(mode) {
+  return { id: id(), mode, status: 'collecting', rawInputs: [], summary: '', candidates: [], questions: [], suggestedProjects: [], startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+}
+
+function appendMessage(role, text, meta = {}) {
+  state.secretary.messages.push({ id: id(), role, text, createdAt: new Date().toISOString(), ...meta });
+  state.secretary.messages = state.secretary.messages.slice(-80);
+}
+
+function beginSecretaryMode(mode) {
+  view = 'secretary';
+  state.secretary.proposal = null;
+  state.secretary.error = null;
+  state.secretary.session = newSession(mode);
+  const openings = {
+    weekly: '把这周想到的事情原样告诉我，可以分几次说。等你说完，我再统一检查项目、依赖、估时和容量。',
+    midweek: '直接告诉我新增了什么。我会拿它和本周已确认的安排比较，不会悄悄加塞。',
+    change: '告诉我现实里发生了什么变化，例如“客户给素材了”或“今天临时加班”。我会判断哪些计划因此需要调整。',
+    overdue: '我会先给逾期事项一个集中处理方案，你不需要逐项从零决定。',
+    monthly: '这是月度项目复盘。先告诉我你现在最担心什么、最想保护什么；我会结合本月投入、结果和收入建议下个月重点。'
+  };
+  appendMessage('assistant', openings[mode]);
+  persist();
+  render();
+}
+
+function newSecretarySession() { close(); beginSecretaryMode('midweek'); }
+function clearSecretaryHistory() { state.secretary.messages = []; state.secretary.session = null; state.secretary.proposal = null; close(); save(); }
+function clearSecretaryError() { state.secretary.error = null; save(); }
+
+async function submitSecretary(event) {
+  event.preventDefault();
+  const input = $('#secretary-input');
+  const text = input?.value.trim();
+  if (!text) { toast('先告诉秘书一件事'); return; }
+  draftText = '';
+  if (view !== 'secretary') view = 'secretary';
+  if (!state.secretary.session || ['confirmed'].includes(state.secretary.session.status)) state.secretary.session = newSession('midweek');
+  if (state.secretary.proposal) {
+    state.secretary.proposal = null;
+    state.secretary.session.status = 'collecting';
+  }
+  const session = state.secretary.session;
+  session.rawInputs.push(text);
+  session.updatedAt = new Date().toISOString();
+  appendMessage('user', text);
+  state.secretary.error = null;
+  persist();
+  render();
+  await understandSecretaryTurn();
+}
+
+function planningContext() {
+  return {
+    now: new Date().toISOString(),
+    today: isoDate(),
+    currentWeekStart: currentWeekStart(),
+    nextWeekStart: nextWeekStart(),
+    planningWeekStart: planningWeekStart(),
+    planningWeekEnd: addDays(planningWeekStart(), 6),
+    rules: {
+      saturdayRest: true,
+      personalCapacityMinutes: state.settings.personalCapacity * 60,
+      mainCapacityMinutes: state.settings.mainCapacity * 60,
+      personalRemainingMinutes: Math.round(remaining('personal')),
+      mainRemainingMinutes: Math.round(remaining('main')),
+      dailyConfirmedLimit: 3,
+      observationZone: false,
+      userConfirmationRequired: true
+    },
+    projects: state.projects.map(project => ({ name: project.name, group: project.group, status: project.status, priority: project.priority, protected: !!project.protected, outcome: project.outcome, monthlyBudgetMinutes: project.monthlyBudgetMinutes })),
+    currentTasks: activeTasks().map(task => ({ id: task.id, title: task.title, project: task.project, pool: taskPool(task), status: task.status, estimateMinutes: task.estimate, actualMinutes: Math.round(taskActualMs(task.id) / 60000), remainingMinutes: Math.round(taskPendingMinutes(task)), plannedDate: task.plannedDate, blockedReason: task.blockedReason, dependencies: (task.dependsOn || []).map(depId => state.tasks.find(item => item.id === depId)?.title).filter(Boolean), externalConditions: task.externalConditions || [] })),
+    life: state.life.filter(inCurrentWeek).map(item => ({ id: item.id, title: item.title, plannedDate: item.plannedDate, kind: item.kind, estimateMinutes: item.estimate })),
+    recentEstimateHistory: state.tasks.filter(task => task.status === 'done').slice(-20).map(task => ({ title: task.title, project: task.project, estimateMinutes: task.estimate, actualMinutes: Math.round(taskActualMs(task.id) / 60000) })),
+    currentMonthStats: projectStats(monthKey())
+  };
+}
+
+const UNDERSTAND_SYSTEM = `你是“未尽”，一位冷静、直接但不咄咄逼人的中文个人秘书。用户会用语音转文字输入混乱原话。
+你的工作是理解，不是按标点拆句。必须丢弃“这是测试”“我梳理一下”“然后我……”等话语组织成分，禁止把它们创建为事项。
+事项保持用户可直接开工的粗颗粒度，不拆执行步骤；完成事项过程中的联系客户、找素材等动作通常不单独建任务。
+只追问会改变排程的问题：完成标准、是否必须本周、截止时间、估时、硬依赖、外部条件。不要追问执行方法。
+识别三类关系：hard_dependency（不完成前置就不能开始）、external_condition（等待他人/场所/素材）、preferred_order（只是建议顺序）。
+项目只允许从给定项目表选择；确实是独立长期结果且有持续工作量时，才建议新项目。
+生活安排占现实时间但不计工作 KPI；关系事项默认不计时器，但仍建议现实占用分钟。
+用户容易过度承诺。你应指出不可信计划，但最终决定属于用户。
+只输出 JSON，不要 Markdown。结构：
+{"mode":"weekly|midweek|change|overdue|monthly","assistantMessage":"先复述理解，再说需要补什么；语气自然","understanding":"对本轮原意的简洁总结","readyToSchedule":true,"questions":[{"question":"只问关键问题","reason":"为何影响排程"}],"suggestedProjects":[{"name":"新项目名","group":"项目组或空","reason":"为何它是独立长期结果","displaces":"它会挤占什么现有重点或容量"}],"candidates":[{"id":"稳定短ID","title":"事项名","type":"work|life","project":"项目名或空","estimate":60,"kind":"relation|home|other","statusIntent":"this_week|next_week|later|unclear","deadline":"YYYY-MM-DD或空","dependencies":[{"type":"hard_dependency|external_condition|preferred_order","target":"事项或条件"}],"reason":"判断依据"}]}
+如果用户只是在回答上一轮问题，更新已有理解，不要把回答本身创建成新任务。每轮 candidates 都返回本次会话目前确认到的完整候选列表，不要只返回本轮新增。无法确认估时时可以给参考值，但要说明待用户确认。`;
+
+async function understandSecretaryTurn() {
+  const session = state.secretary.session;
+  if (!session) return;
+  if (!state.settings.apiKey) {
+    secretaryFailure(new Error('NO_KEY'));
+    return;
+  }
+  state.secretary.busy = true;
+  persist();
+  render();
+  try {
+    const payload = {
+      session: { mode: session.mode, summary: session.summary, candidates: session.candidates, questions: session.questions, suggestedProjects: session.suggestedProjects, rawInputs: session.rawInputs },
+      recentConversation: state.secretary.messages.slice(-12).map(message => ({ role: message.role, content: message.text })),
+      context: planningContext()
+    };
+    const result = await deepseekJSON(UNDERSTAND_SYSTEM, JSON.stringify(payload), 'high');
+    session.mode = result.mode || session.mode;
+    session.summary = result.understanding || session.summary;
+    session.questions = Array.isArray(result.questions) ? result.questions : [];
+    session.suggestedProjects = (Array.isArray(result.suggestedProjects) ? result.suggestedProjects : []).filter(project => project?.name && !state.projects.some(existing => existing.name === project.name));
+    session.candidates = normalizeCandidates(result.candidates?.length ? result.candidates : session.candidates);
+    session.status = session.questions.length ? 'clarifying' : 'collecting';
+    session.updatedAt = new Date().toISOString();
+    appendMessage('assistant', result.assistantMessage || (session.questions.length ? session.questions.map(item => item.question).join('\n') : '我已经理解并记在本次对话草稿里。'));
+    state.secretary.busy = false;
+    state.secretary.error = null;
+    persist();
+    render();
+    if (result.readyToSchedule && ['midweek', 'change', 'overdue'].includes(session.mode) && !session.questions.length) await buildScheduleProposal();
+  } catch (error) {
+    secretaryFailure(error);
+  }
+}
+
+function normalizeCandidates(items) {
+  return (Array.isArray(items) ? items : []).filter(item => item && String(item.title || '').trim()).map(item => ({
+    id: item.id || id(),
+    title: String(item.title).trim(),
+    type: item.type === 'life' ? 'life' : 'work',
+    project: String(item.project || '').trim(),
+    estimate: Math.max(0, Number(item.estimate) || 0),
+    kind: item.kind || 'other',
+    statusIntent: item.statusIntent || 'unclear',
+    deadline: /^\d{4}-\d{2}-\d{2}$/.test(item.deadline || '') ? item.deadline : '',
+    dependencies: Array.isArray(item.dependencies) ? item.dependencies : [],
+    reason: item.reason || ''
+  }));
+}
+
+function scheduleSystemPrompt(mode) {
+  return `你是“未尽”的排程决策层。输入已经过语义理解，不得重新按标点创造任务。
+当前模式：${mode}。使用项目管理、关键路径、机会成本和艾森豪威尔重要/紧急视角，但不要机械打分。
+优先级依次考虑：用户明确的本月重点、硬截止与不完成代价、依赖链、收入验证、时效窗口、历史真实耗时。
+“阿野在武汉”是本月最高重点和阿野IP获客入口；“是阿野吖”是独立次重点；“磕学家”每月最多480分钟且不要求做满；主业使用独立容量池。
+周六不排工作，生活可以安排。普通事项排到某一天，不制作小时级日历。每天最多建议1至3件重点。
+硬依赖必须使后续日期不早于前置；同一天时，前置未完成前后续不得进入今日可执行项。外部条件未满足时标记受阻，不得放入今天；建议顺序不能伪装成硬依赖。
+没有观察区。事项只能建议本周、下周或以后再说。AI 只建议，用户确认后才生效。
+本周超容量时必须明确否决“全部完成”，并给一个最小调整方案：指出应顺延/取消哪个已有事项。例外冲刺必须单独标记。
+若是逾期处理，优先输出对已有任务的 changes，不要复制成新任务。若是现实变化，识别被解除的外部条件并提出激活建议。
+只输出 JSON：
+{"title":"建议标题","summary":"直接结论","reasoning":["最多4条事实理由"],"items":[{"id":"沿用候选ID","title":"事项名","type":"work|life","project":"项目名或空","estimate":60,"kind":"relation|home|other","status":"committed|later","plannedDate":"YYYY-MM-DD","priority":1,"dependsOn":["前置事项标题"],"externalConditions":["未满足外部条件"],"reason":"为何这样排"}],"changes":[{"taskId":"已有任务ID","action":"move|next_week|cancel|activate","plannedDate":"YYYY-MM-DD或空","reason":"调整理由"}],"overCapacity":false,"capacityMessage":"容量判断"}`;
+}
+
+async function finishCollecting() {
+  const session = state.secretary.session;
+  if (!session) return;
+  if (session.questions?.length) {
+    appendMessage('assistant', '还有会改变排程的信息没有确认：\n' + session.questions.map(item => '• ' + item.question).join('\n'));
+    save();
+    return;
+  }
+  if (session.mode === 'monthly') { await buildMonthlyProposal(); return; }
+  if (!session.candidates?.length && session.mode !== 'overdue') {
+    appendMessage('assistant', '我还没有识别到可以排程的事项。继续把要做的事告诉我即可。');
+    save();
+    return;
+  }
+  await buildScheduleProposal();
+}
+
+async function buildScheduleProposal() {
+  const session = state.secretary.session;
+  if (!session || !state.settings.apiKey) { secretaryFailure(new Error('NO_KEY')); return; }
+  session.status = 'scheduling';
+  state.secretary.busy = true;
+  state.secretary.error = null;
+  persist();
+  render();
+  try {
+    const overdue = session.mode === 'overdue' ? overdueTasks().map(task => ({ id: task.id, title: task.title, project: task.project, plannedDate: task.plannedDate, remainingMinutes: taskPendingMinutes(task), priority: task.priority, dependenciesReady: dependencyReady(task) })) : [];
+    const payload = { mode: session.mode, summary: session.summary, candidates: session.candidates, overdue, context: planningContext() };
+    const result = await deepseekJSON(scheduleSystemPrompt(session.mode), JSON.stringify(payload), 'max');
+    const proposal = normalizeProposal(result);
+    state.secretary.proposal = proposal;
+    session.status = 'proposed';
+    state.secretary.busy = false;
+    appendMessage('assistant', proposal.summary || '我已经形成一份可确认的安排。');
+    persist();
+    render();
+  } catch (error) {
+    secretaryFailure(error);
+  }
+}
+
+function normalizeProposal(result) {
+  const items = (Array.isArray(result.items) ? result.items : []).filter(item => item && item.title).map(item => {
+    const type = item.type === 'life' ? 'life' : 'work';
+    const status = item.status === 'later' ? 'later' : 'committed';
+    let date = /^\d{4}-\d{2}-\d{2}$/.test(item.plannedDate || '') ? item.plannedDate : (status === 'later' ? nextWeekStart() : planningWeekStart());
+    if (date < isoDate()) date = isoDate();
+    if (status === 'later' && date < nextWeekStart()) date = nextWeekStart();
+    date = nextSchedulableDate(date, type);
+    const normalizedStatus = date >= nextWeekStart() ? 'later' : status;
+    return {
+      id: item.id || id(), title: String(item.title).trim(), type,
+      project: String(item.project || '').trim(),
+      estimate: Math.max(0, Number(item.estimate) || 0), kind: item.kind || 'other', status: normalizedStatus,
+      plannedDate: date, priority: Math.min(5, Math.max(1, +item.priority || 3)),
+      dependsOn: Array.isArray(item.dependsOn) ? item.dependsOn : [],
+      externalConditions: Array.isArray(item.externalConditions) ? item.externalConditions : [], reason: item.reason || ''
+    };
+  });
+  enforceDependencyDates(items);
+  return { id: id(), type: 'schedule', title: result.title || '这样安排最可信', summary: result.summary || '', reasoning: Array.isArray(result.reasoning) ? result.reasoning : [], items, changes: Array.isArray(result.changes) ? result.changes : [], overCapacity: !!result.overCapacity, capacityMessage: result.capacityMessage || '', createdAt: new Date().toISOString() };
+}
+
+function enforceDependencyDates(items) {
+  const byTitle = new Map([...state.tasks, ...items].map(item => [item.title, item]));
+  items.forEach(item => {
+    (item.dependsOn || []).forEach(name => {
+      const dependency = byTitle.get(name);
+      if (dependency?.plannedDate && item.status === 'committed' && item.plannedDate < dependency.plannedDate) item.plannedDate = nextSchedulableDate(dependency.plannedDate, item.type);
+    });
+  });
+}
+
+async function buildMonthlyProposal() {
+  const session = state.secretary.session;
+  if (!session || !state.settings.apiKey) { secretaryFailure(new Error('NO_KEY')); return; }
+  state.secretary.busy = true;
+  session.status = 'scheduling';
+  persist(); render();
+  const system = `你是“未尽”的月度项目组合顾问。用户不是要把所有项目都做好，而是要基于当前风险、机会、真实投入、收入和愿景选择下月重点。
+项目状态只能是 fixed、focus、secondary、maintenance、low、opportunity、paused。月度状态月底失效，需要用户下月重新确认。
+阿野在武汉与是阿野吖是阿野IP下两个独立创作项目，容量冲突时保护阿野在武汉。磕学家已有每月100至200元收入，本月预算上限480分钟，不要求做满。
+给出直接判断，但不得替用户永久决定。只输出 JSON：{"title":"下月项目建议","summary":"结论","judgment":"基于数据和用户表达的判断","recommendations":[{"name":"项目名","status":"状态","monthlyBudgetMinutes":0,"reason":"原因"}]}`;
+  try {
+    const result = await deepseekJSON(system, JSON.stringify({ conversation: state.secretary.messages.slice(-16), projects: state.projects, stats: projectStats(monthKey()), userSummary: session.summary }), 'max');
+    state.secretary.proposal = { id: id(), type: 'monthly', title: result.title, summary: result.summary, judgment: result.judgment, recommendations: Array.isArray(result.recommendations) ? result.recommendations : [], createdAt: new Date().toISOString() };
+    session.status = 'proposed'; state.secretary.busy = false;
+    appendMessage('assistant', result.summary || '我已经形成下个月的项目配置建议。');
+    persist(); render();
+  } catch (error) { secretaryFailure(error); }
+}
+
+function monthlyProposalHtml(proposal) {
+  return '<section class="proposal"><div class="proposal-kicker">下月项目配置 · 你确认后生效</div><h2>' + esc(proposal.title || '下月项目建议') + '</h2><p class="proposal-summary">' + esc(proposal.summary || '') + '</p><div class="report-advice"><p>' + esc(proposal.judgment || '') + '</p></div><div class="project-recommendations">' + proposal.recommendations.map(item => '<div class="change-row"><div><b>' + esc(item.name) + '</b><small>' + projectStatusLabel(item.status) + (item.monthlyBudgetMinutes ? ' · 上限 ' + hours(item.monthlyBudgetMinutes) : '') + '</small></div><p>' + esc(item.reason || '') + '</p></div>').join('') + '</div><button class="btn-primary" onclick="confirmMonthlyProposal()">确认下月配置</button><button class="btn-text" onclick="discardProposal()">继续讨论</button></section>';
+}
+
+function confirmMonthlyProposal() {
+  const proposal = state.secretary.proposal;
+  if (!proposal || proposal.type !== 'monthly') return;
+  proposal.recommendations.forEach(recommendation => {
+    const project = state.projects.find(item => item.name === recommendation.name);
+    if (!project) return;
+    if (['fixed', 'focus', 'secondary', 'maintenance', 'low', 'opportunity', 'paused'].includes(recommendation.status)) project.status = recommendation.status;
+    if (Number.isFinite(+recommendation.monthlyBudgetMinutes) && +recommendation.monthlyBudgetMinutes >= 0) project.monthlyBudgetMinutes = +recommendation.monthlyBudgetMinutes;
+  });
+  state.monthlyReviews = state.monthlyReviews.filter(item => item.month !== monthKey());
+  state.monthlyReviews.push({ id: id(), month: monthKey(), createdAt: new Date().toISOString(), judgment: proposal.judgment, summary: proposal.summary, recommendations: proposal.recommendations, stats: projectStats(monthKey()) });
+  state.secretary.proposal = null;
+  state.secretary.session.status = 'confirmed';
+  appendMessage('assistant', '下月项目配置已经确认。它只对下个月有效，月底会重新问你。');
+  save();
+}
+
+async function deepseekJSON(system, user, reasoningEffort = 'high') {
+  if (!state.settings.apiKey) throw new Error('NO_KEY');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 90000);
+  let response;
+  try {
+    response = await fetch(API_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.settings.apiKey },
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        thinking: { type: 'enabled' },
+        reasoning_effort: reasoningEffort,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: user }]
+      })
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (error.name === 'AbortError') throw new Error('TIMEOUT');
+    throw new Error('NETWORK');
+  }
+  clearTimeout(timer);
+  const raw = await response.text();
+  if (!response.ok) {
+    const apiError = new Error('HTTP_' + response.status);
+    apiError.details = raw.slice(0, 240);
+    throw apiError;
+  }
+  try {
+    const data = JSON.parse(raw);
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error('EMPTY');
+    return JSON.parse(String(content).replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim());
+  } catch (error) {
+    throw new Error('INVALID_JSON');
+  }
+}
+
+function apiErrorMessage(error) {
+  const code = error?.message || '';
+  if (code === 'NO_KEY') return '尚未配置 DeepSeek API Key。你的原话已经保留，请先去设置。';
+  if (code === 'NETWORK') return '浏览器没有成功连接 DeepSeek。请检查网络、代理或浏览器跨域限制。';
+  if (code === 'TIMEOUT') return 'DeepSeek 超过 90 秒没有返回。你的原话没有丢失，可以重试。';
+  if (code === 'HTTP_401' || code === 'HTTP_403') return 'API Key 无效或没有权限，请在设置中重新保存。';
+  if (code === 'HTTP_402') return 'DeepSeek 账户余额不足。充值后可以直接重试。';
+  if (code === 'HTTP_429') return 'DeepSeek 请求过于频繁，请稍后重试。';
+  if (code.startsWith('HTTP_')) return 'DeepSeek 返回错误 ' + code.replace('HTTP_', '') + '。不会使用本地拆句代替。';
+  if (code === 'INVALID_JSON' || code === 'EMPTY') return 'AI 返回的结构不完整。原话和对话草稿均已保留，请重试。';
+  return 'AI 暂时没有完成处理。原话已保留，不会降级成标点拆分。';
+}
+
+function secretaryFailure(error) {
+  state.secretary.busy = false;
+  state.secretary.error = { code: error?.message || 'UNKNOWN', message: apiErrorMessage(error), at: new Date().toISOString() };
+  persist(); render();
+}
+
+async function retrySecretary() {
+  state.secretary.error = null;
+  persist(); render();
+  const session = state.secretary.session;
+  if (session?.status === 'scheduling') await buildScheduleProposal();
+  else await understandSecretaryTurn();
+}
+
+/* ── 建议编辑与确认 ── */
+function setProposalField(itemId, field, value) {
+  const item = state.secretary.proposal?.items?.find(candidate => candidate.id === itemId);
+  if (!item) return;
+  item[field] = field === 'estimate' ? Math.max(0, +value || 0) : value;
+  if (field === 'project') item.capacityPool = value === '主业' ? 'main' : 'personal';
+  persist();
+}
+
+function setProposalDependencies(itemId, value) {
+  const item = state.secretary.proposal?.items?.find(candidate => candidate.id === itemId);
+  if (!item) return;
+  item.dependsOn = value.split(/[、,，]/).map(part => part.trim()).filter(Boolean);
+  persist();
+}
+
+function setProposalChangeField(taskId, field, value) {
+  const change = state.secretary.proposal?.changes?.find(item => item.taskId === taskId);
+  if (!change) return;
+  change[field] = value;
+  persist();
+}
+
+function removeProposalChange(taskId) {
+  state.secretary.proposal.changes = state.secretary.proposal.changes.filter(item => item.taskId !== taskId);
+  save();
+}
+
+function removeProposalItem(itemId) {
+  state.secretary.proposal.items = state.secretary.proposal.items.filter(item => item.id !== itemId);
+  save();
+}
+
+function addProposalItem() {
+  state.secretary.proposal.items.push({ id: id(), title: '', type: 'work', project: '', estimate: 0, kind: 'other', status: 'committed', plannedDate: nextSchedulableDate(isoDate()), priority: 3, dependsOn: [], externalConditions: [], reason: '由你手动加入，仍需确认估时、日期和依赖。' });
+  save();
+}
+
+function changeReliefMinutes(change, pool) {
+  if (!['next_week', 'cancel'].includes(change.action)) return 0;
+  const task = state.tasks.find(item => item.id === change.taskId);
+  return task && taskPool(task) === pool ? taskPendingMinutes(task) : 0;
+}
+
+function proposalPoolImpact(proposal, pool) {
+  const added = (proposal.items || []).filter(item => item.type === 'work' && item.status !== 'later' && (item.project === '主业' ? 'main' : 'personal') === pool).reduce((sum, item) => sum + (+item.estimate || 0), 0);
+  const relief = (proposal.changes || []).reduce((sum, change) => sum + changeReliefMinutes(change, pool), 0);
+  return added - relief;
+}
+
+function proposalDailyOverload(proposal) {
+  const counts = {};
+  const changedIds = new Set((proposal.changes || []).map(change => change.taskId));
+  activeTasks().filter(task => !changedIds.has(task.id) && task.status !== 'blocked' && dependencyReady(task)).forEach(task => { counts[task.plannedDate] = (counts[task.plannedDate] || 0) + 1; });
+  (proposal.changes || []).filter(change => ['move', 'activate'].includes(change.action) && change.plannedDate).forEach(change => { counts[change.plannedDate] = (counts[change.plannedDate] || 0) + 1; });
+  (proposal.items || []).filter(item => item.type === 'work' && item.status !== 'later' && !(item.externalConditions || []).length).forEach(item => { counts[item.plannedDate] = (counts[item.plannedDate] || 0) + 1; });
+  const overloaded = Object.entries(counts).find(([, count]) => count > 3);
+  return overloaded ? { date: overloaded[0], count: overloaded[1] } : null;
+}
+
+function proposalOverCapacity(proposal) {
+  if (proposal.type !== 'schedule') return '';
+  const dailyOverload = proposalDailyOverload(proposal);
+  if (dailyOverload) return dayText(dailyOverload.date) + ' 被安排了 ' + dailyOverload.count + ' 件可执行工作；每天最多确认 3 件，请改日期。';
+  const personalOver = proposalPoolImpact(proposal, 'personal') - Math.max(0, remaining('personal'));
+  const mainOver = proposalPoolImpact(proposal, 'main') - Math.max(0, remaining('main'));
+  if (personalOver > 0) return '个人项目仍超出可靠容量 ' + hours(personalOver) + '。要插入它，必须顺延已有事项，放到下周，或明确开启例外冲刺。';
+  if (mainOver > 0) return '主业显式任务仍超出可靠容量 ' + hours(mainOver) + '。需要减少或顺延已有安排。';
+  return proposal.overCapacity ? (proposal.capacityMessage || '秘书判断当前计划仍不可信，请先调整。') : '';
+}
+
+function applyProposalChanges(changes) {
+  changes.forEach(change => {
+    const task = state.tasks.find(item => item.id === change.taskId);
+    if (!task) return;
+    if (change.action === 'next_week') {
+      task.status = 'later'; task.weekStart = nextWeekStart(); task.plannedDate = nextSchedulableDate(nextWeekStart());
+    } else if (change.action === 'cancel') {
+      task.status = 'cancelled';
+    } else if (change.action === 'activate') {
+      task.status = 'committed'; task.blockedReason = ''; task.externalConditions = []; task.plannedDate = nextSchedulableDate(change.plannedDate || isoDate());
+    } else if (change.action === 'move') {
+      task.plannedDate = nextSchedulableDate(change.plannedDate || isoDate());
+      task.status = 'committed';
+    }
+  });
+}
+
+function confirmProposal(sprint) {
+  const proposal = state.secretary.proposal;
+  if (!proposal || proposal.type !== 'schedule') return;
+  proposal.items.forEach(item => {
+    if (item.status === 'later' && item.plannedDate < nextWeekStart()) item.plannedDate = nextSchedulableDate(nextWeekStart(), item.type);
+    if (item.plannedDate >= nextWeekStart()) item.status = 'later';
+    item.plannedDate = nextSchedulableDate(item.plannedDate, item.type);
+  });
+  enforceDependencyDates(proposal.items);
+  const unknownProject = proposal.items.find(item => item.project && !state.projects.some(project => project.name === item.project));
+  if (unknownProject) { toast('请先确认是否建立项目「' + unknownProject.project + '」'); return; }
+  const invalid = proposal.items.find(item => !String(item.title || '').trim() || !(+item.estimate > 0) || !item.plannedDate);
+  if (invalid) { toast('每个事项都要确认名称、预计时间和日期'); return; }
+  const over = proposalOverCapacity(proposal);
+  if (over && !sprint) { toast('这份方案仍然超容量，请先取舍'); return; }
+  applyProposalChanges(proposal.changes || []);
+  const titleMap = new Map(state.tasks.map(task => [task.title, task.id]));
+  const created = [];
+  proposal.items.forEach(item => {
+    if (item.type === 'life') {
+      state.life.push({ id: id(), title: item.title.trim(), kind: item.kind || 'other', estimate: +item.estimate, status: 'planned', when: dayText(item.plannedDate), plannedDate: item.plannedDate, weekStart: weekStartOf(item.plannedDate) });
+      return;
+    }
+    const task = { id: id(), title: item.title.trim(), project: item.project || '', estimate: +item.estimate, remaining: 0, status: item.externalConditions?.length ? 'blocked' : item.status, priority: item.priority || 3, createdAt: new Date().toISOString(), weekStart: weekStartOf(item.plannedDate), plannedDate: item.plannedDate, dependsOn: [], externalConditions: item.externalConditions || [], blockedReason: item.externalConditions?.length ? '等待 ' + item.externalConditions.join('、') : '', capacityPool: item.project === '主业' ? 'main' : 'personal' };
+    state.tasks.push(task); titleMap.set(task.title, task.id); created.push({ task, names: item.dependsOn || [] });
+  });
+  created.forEach(entry => {
+    const missing = [];
+    entry.task.dependsOn = entry.names.map(name => { const depId = titleMap.get(name); if (depId) return depId; missing.push(name); return null; }).filter(Boolean);
+    if (missing.length) { entry.task.status = 'blocked'; entry.task.blockedReason = '等待 ' + missing.join('、'); }
+  });
+  if (sprint && !state.specialWeeks.includes(currentWeekStart())) state.specialWeeks.push(currentWeekStart());
+  state.secretary.proposal = null;
+  state.secretary.session.status = 'confirmed';
+  appendMessage('assistant', sprint ? '已经按例外冲刺写入。本周会单独标记，不会拿来提高以后容量。' : '已经按你确认的方案写入计划。');
+  save();
+}
+
+function moveProposalToNextWeek() {
+  const proposal = state.secretary.proposal;
+  proposal.items.forEach(item => { if (item.type === 'work') { item.status = 'later'; item.plannedDate = nextSchedulableDate(nextWeekStart()); } });
+  proposal.overCapacity = false;
+  save();
+}
+
+function discardProposal() {
+  state.secretary.proposal = null;
+  if (state.secretary.session) state.secretary.session.status = 'collecting';
+  appendMessage('assistant', '方案暂时不生效。继续告诉我你想改哪里。');
+  save();
+}
+
+function startOverdueReview() {
+  beginSecretaryMode('overdue');
+  const tasks = overdueTasks();
+  state.secretary.session.summary = '需要集中处理逾期事项：' + tasks.map(task => task.title).join('、');
+  appendMessage('user', '请直接给我这些逾期事项的处理建议，不要让我逐项从零决定。');
+  persist(); render();
+  buildScheduleProposal();
+}
+
+/* ── AI 周报 ── */
+async function generateWeeklyReport() {
+  const report = buildReport();
+  if (!state.settings.apiKey) { toast('请先在设置中连接 DeepSeek'); return; }
+  open('<h2>正在生成周报判断</h2><p>秘书会使用本周真实事项、计时、依赖和项目重点，不会套固定模板。</p>');
+  const system = `你是“未尽”的周报判断层。必须引用输入里的具体事实，不说空话，不使用固定鸡汤。
+区分工作和生活；生活不计工作完成率。分析估时偏差、依赖、过载、例外冲刺和项目投入。未完成不自动等于投入不足，也可能是计划过载或受阻。
+给下周最多4条具体建议；建议必须说明继续、顺延、取消、调整估时或先解除哪个依赖。只输出 JSON：{"judgment":"事实判断","suggestions":["建议"]}`;
+  try {
+    const result = await deepseekJSON(system, JSON.stringify({ report: reportPayload(report), projects: state.projects, stats: projectStats(monthKey()), exceptionSprint: state.specialWeeks.includes(currentWeekStart()), capacities: { personal: state.settings.personalCapacity, main: state.settings.mainCapacity } }), 'max');
+    state.reportDrafts[report.weekStart] = { judgment: result.judgment, suggestions: Array.isArray(result.suggestions) ? result.suggestions : [], sourceLabel: MODEL + ' · 基于本周真实数据', generatedAt: new Date().toISOString() };
+    close(); save(); toast('AI 周报判断已生成');
+  } catch (error) {
+    close(); toast(apiErrorMessage(error));
+  }
+}
+
+function reportPayload(report) {
+  return {
+    weekStart: report.weekStart,
+    work: report.tasks.map(task => ({ title: task.title, project: task.project, status: label(task.status), estimateMinutes: task.estimate, actualMinutes: Math.round(taskActualMs(task.id) / 60000), remainingMinutes: Math.round(taskPendingMinutes(task)), plannedDate: task.plannedDate, blockedReason: task.blockedReason })),
+    life: report.life.map(item => ({ title: item.title, status: item.status, kind: item.kind, plannedDate: item.plannedDate })),
+    actualMinutes: Math.round(report.actualMinutes),
+    bias: report.bias
+  };
+}
+
+function saveReport() {
+  const report = buildReport();
+  const draft = state.reportDrafts[report.weekStart];
+  if (!draft) { toast('请先生成 AI 判断，再保存周报快照'); return; }
+  const snapshot = { id: id(), weekStart: report.weekStart, createdAt: new Date().toISOString(), done: report.done, total: report.total, actualMinutes: report.actualMinutes, bias: report.bias, work: report.tasks.map(task => ({ ...task, actualMs: taskActualMs(task.id) })), life: report.life.map(item => ({ ...item })), judgment: draft.judgment, suggestions: draft.suggestions, sourceLabel: draft.sourceLabel };
+  state.reports = state.reports.filter(item => item.weekStart !== report.weekStart);
+  state.reports.unshift(snapshot);
+  save(); toast('本周周报快照已保存');
+}
+
+function recordIncome() {
+  open('<h2>记录项目收入</h2><p>收入与真实投入会一起进入月度判断。</p><div class="field"><label>项目</label><select id="income-project">' + projectOptions('磕学家') + '</select></div><div class="field"><label>金额（元）</label><input id="income-amount" type="number" min="0" step="0.01"></div><button class="btn-primary" onclick="saveIncome()">保存收入</button>');
+}
+
+function saveIncome() {
+  const project = $('#income-project').value;
+  const amount = +$('#income-amount').value;
+  if (!project || !(amount >= 0)) { toast('请选择项目并填写金额'); return; }
+  state.incomeRecords.push({ id: id(), project, amount, date: isoDate(), month: monthKey(), createdAt: new Date().toISOString() });
+  close(); save(); toast('收入已记录');
+}
+
+/* ── 计时器 ── */
+function timerClock(ms) {
+  const total = Math.floor(Math.max(0, +ms || 0) / 1000);
+  return String(Math.floor(total / 3600)).padStart(2, '0') + ':' + String(Math.floor(total / 60) % 60).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+}
+
+function openTimerOverlay(taskId) {
+  const task = state.tasks.find(item => item.id === taskId);
+  if (!task) return;
+  document.getElementById('timer-overlay')?.remove();
+  const paused = state.timer?.paused;
+  document.body.insertAdjacentHTML('beforeend', '<div class="timer-overlay" id="timer-overlay"><button class="timer-close" onclick="closeTimerOverlay()">✕</button><div class="timer-label" id="timer-label">' + (paused ? '已暂停' : '正在专注') + '</div><div class="timer-task">' + esc(task.title) + '</div><div class="timer-ring">' + ringSvg(0, 200, 6, 'ring-fill') + '<div class="timer-display" id="timer-display">' + timerClock(taskActualMs(taskId)) + '</div></div><div class="timer-actions"><button class="btn-secondary" id="timer-toggle" onclick="' + (paused ? 'resumeTimer()' : 'pauseTimer()') + '">' + (paused ? '▶ 继续' : '⏸ 暂停') + '</button><button class="btn-primary" onclick="finishTask(\'' + taskId + '\')">✓ 结束</button></div></div>');
+  cancelAnimationFrame(_timerRAF);
+  _timerRAF = requestAnimationFrame(timerOverlayTick);
+}
+
+function closeTimerOverlay() { cancelAnimationFrame(_timerRAF); document.getElementById('timer-overlay')?.remove(); render(); }
+
+function timerOverlayTick() {
+  if (!state.timer) return;
+  const totalMs = taskActualMs(state.timer.taskId);
+  const element = document.getElementById('timer-display');
+  if (element) element.textContent = timerClock(totalMs);
+  const task = state.tasks.find(item => item.id === state.timer.taskId);
+  const totalEstimate = (+task?.estimate || 60) * 60000;
+  const pct = Math.min(1, totalMs / totalEstimate);
+  const ring = document.querySelector('#timer-overlay .ring-fill');
+  if (ring) { const radius = 97; const circumference = 2 * Math.PI * radius; ring.setAttribute('stroke-dashoffset', circumference * (1 - pct)); }
+  _timerRAF = requestAnimationFrame(timerOverlayTick);
+}
+
+function recordActiveSegment() {
+  if (!state.timer || state.timer.paused || !state.timer.startedAt) return;
+  const endedAt = new Date().toISOString();
+  state.sessions.push({ id: id(), taskId: state.timer.taskId, startedAt: state.timer.startedAt, endedAt, durationMs: Math.max(0, new Date(endedAt) - new Date(state.timer.startedAt)), weekStart: weekStartOf(state.timer.startedAt) });
+}
+
+function startTimer(taskId) {
+  if (state.timer && state.timer.taskId !== taskId) { toast('当前还有一件暂停或进行中的工作，请先结束它'); return; }
+  const task = state.tasks.find(item => item.id === taskId);
+  if (!task) return;
+  if (!dependencyReady(task)) { toast('前置事项或外部条件还没满足'); return; }
+  if (!state.timer) state.timer = { taskId, startedAt: new Date().toISOString(), paused: false };
+  else if (state.timer.paused) { state.timer.startedAt = new Date().toISOString(); state.timer.paused = false; }
+  task.status = 'active'; persist(); render(); openTimerOverlay(taskId);
+}
+
+function pauseTimer() {
+  if (!state.timer || state.timer.paused) return;
+  recordActiveSegment(); state.timer.startedAt = null; state.timer.paused = true;
+  const task = state.tasks.find(item => item.id === state.timer.taskId);
+  if (task) task.status = 'paused';
+  persist(); render(); openTimerOverlay(state.timer.taskId); toast('已暂停，仍停留在专注页');
+}
+
+function resumeTimer() {
+  if (!state.timer || !state.timer.paused) return;
+  state.timer.startedAt = new Date().toISOString(); state.timer.paused = false;
+  const task = state.tasks.find(item => item.id === state.timer.taskId);
+  if (task) task.status = 'active';
+  persist(); render(); openTimerOverlay(state.timer.taskId);
+}
+
+function tickInline() {
+  if (!state.timer) return;
+  const element = $('#timer-text');
+  if (!element || view !== 'today') return;
+  element.textContent = timerClock(taskActualMs(state.timer.taskId));
+  setTimeout(tickInline, 500);
+}
+
+/* ── 任务操作 ── */
+function finishTask(taskId) {
+  if (state.timer?.taskId === taskId) {
+    recordActiveSegment(); state.timer = null; persist(); cancelAnimationFrame(_timerRAF); document.getElementById('timer-overlay')?.remove();
+  }
+  const task = state.tasks.find(item => item.id === taskId);
+  if (!task) return;
+  open('<h2>这件事完成了吗？</h2><p>未完成也不是失败。告诉秘书真实剩余时间。</p><div class="notice">' + esc(task.title) + ' · 已投入 ' + durationText(taskActualMs(taskId)) + '</div><div class="row" style="margin-top:16px"><button class="btn-secondary" onclick="markRemaining(\'' + taskId + '\')">还没完成</button><button class="btn-primary" onclick="markDone(\'' + taskId + '\')">已完成</button></div>');
+}
+
+function markDone(taskId) {
+  const task = state.tasks.find(item => item.id === taskId);
+  if (!task) return;
+  task.status = 'done'; task.completedAt = new Date().toISOString(); task.remaining = 0;
+  close(); save(); toast('完成已记录 ✓');
+}
+
+function markRemaining(taskId) {
+  const task = state.tasks.find(item => item.id === taskId);
+  close(); open('<h2>还需要多久？</h2><p>校准预估，不是自我批评。</p><div class="field"><label>预计剩余分钟</label><input id="remain" type="number" min="5" value="' + (task.remaining || task.estimate || 60) + '"></div><button class="btn-primary" onclick="saveRemaining(\'' + taskId + '\')">保存真实剩余时间</button>');
+}
+
+function saveRemaining(taskId) {
+  const task = state.tasks.find(item => item.id === taskId);
+  task.remaining = +$('#remain').value || 0; task.status = 'committed';
+  close(); save(); toast('已保存，不会自动滚到明天');
+}
+
+function lifeDone(itemId) { const item = state.life.find(entry => entry.id === itemId); if (!item) return; item.status = 'done'; save(); toast('已记录。生活不是 KPI。'); }
+
+function taskMenu(taskId) {
+  const task = state.tasks.find(item => item.id === taskId);
+  open('<h2>' + esc(task.title) + '</h2><p>' + (task.project ? '项目：' + esc(task.project) : '尚未归属项目') + '</p><button class="btn-secondary" onclick="rescheduleTask(\'' + taskId + '\')">修改日期</button><button class="btn-secondary" onclick="blockTask(\'' + taskId + '\')">标记受阻</button><button class="btn-secondary danger" onclick="removeTask(\'' + taskId + '\')">删除此项</button>');
+}
+
+function rescheduleTask(taskId) {
+  const task = state.tasks.find(item => item.id === taskId);
+  close(); open('<h2>修改安排日期</h2><p>修改后仍会遵守已经确认的硬依赖。</p><div class="field"><label>日期</label><input id="reschedule-date" type="date" value="' + task.plannedDate + '"></div><button class="btn-primary" onclick="saveReschedule(\'' + taskId + '\')">确认修改</button>');
+}
+
+function saveReschedule(taskId) {
+  const task = state.tasks.find(item => item.id === taskId);
+  const date = $('#reschedule-date').value;
+  if (!date) return;
+  const dependencies = (task.dependsOn || []).map(depId => state.tasks.find(item => item.id === depId)).filter(Boolean);
+  if (dependencies.some(dep => dep.plannedDate > date && dep.status !== 'done')) { toast('这个日期早于尚未完成的前置事项'); return; }
+  task.plannedDate = nextSchedulableDate(date); close(); save();
+}
+
+function blockTask(taskId) { const task = state.tasks.find(item => item.id === taskId); if (!task) return; task.status = 'blocked'; task.blockedReason = task.blockedReason || '等待外部条件'; close(); save(); toast('已标记受阻，不会进入今日事项'); }
+function removeTask(taskId) { state.tasks = state.tasks.filter(item => item.id !== taskId); close(); save(); toast('已移除'); }
+
+/* ── 滑动手势 ── */
+function swipeStart(event, taskId) {
+  const item = document.getElementById('task-item-' + taskId);
+  if (!item) return;
+  _swipeState = { taskId, item, startX: event.touches ? event.touches[0].clientX : event.clientX, startY: event.touches ? event.touches[0].clientY : event.clientY, offset: 0 };
+}
+
+function swipeMove(event) {
+  if (!_swipeState) return;
+  const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+  const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+  const dx = clientX - _swipeState.startX;
+  const dy = clientY - _swipeState.startY;
+  if (Math.abs(dy) > Math.abs(dx)) return;
+  event.preventDefault();
+  _swipeState.offset = Math.min(0, Math.max(-120, dx));
+  _swipeState.item.style.transform = 'translateX(' + _swipeState.offset + 'px)';
+}
+
+function swipeEnd() {
+  if (!_swipeState) return;
+  _swipeState.item.style.transform = _swipeState.offset < -80 ? 'translateX(-120px)' : 'translateX(0)';
+  _swipeState = null;
+}
+
+function bindSwipes() {
+  document.querySelectorAll('.task-row-wrap').forEach(wrap => {
+    const item = wrap.querySelector('.task-item');
+    const taskId = wrap.dataset.taskId;
+    item?.addEventListener('touchstart', event => swipeStart(event, taskId), { passive: false });
+    item?.addEventListener('touchmove', swipeMove, { passive: false });
+    item?.addEventListener('touchend', swipeEnd);
+  });
+}
+
+/* ── 设置、导出与 PWA ── */
+function saveSettings() {
+  const apiKey = $('#api-key');
+  const personal = $('#personal-capacity');
+  const main = $('#main-capacity');
+  const reminder = $('#reminder-time');
+  if (apiKey) state.settings.apiKey = apiKey.value.trim();
+  if (personal) state.settings.personalCapacity = +personal.value || 7;
+  if (main) state.settings.mainCapacity = +main.value || 20;
+  if (reminder) state.settings.reminderTime = reminder.value || '22:30';
+  save(); toast('设置已保存在本机');
+}
+
+function rollTemporalState() {
+  let changed = false;
+  state.tasks.forEach(task => {
+    if (task.weekStart <= currentWeekStart() && task.status === 'later') { task.status = 'committed'; changed = true; }
+    if (task.weekStart < currentWeekStart() && ['committed', 'active', 'paused', 'blocked'].includes(task.status)) { task.weekStart = currentWeekStart(); changed = true; }
+  });
+  if (changed) persist();
+}
+
+async function testDeepSeek() {
+  const keyInput = $('#api-key');
+  if (keyInput) state.settings.apiKey = keyInput.value.trim();
+  if (!state.settings.apiKey) { toast('请先填写 API Key'); return; }
+  toast('正在测试 DeepSeek…');
+  try {
+    await deepseekJSON('只输出 JSON：{"ok":true}', '连接测试', 'high');
+    persist(); toast('DeepSeek 连接成功');
+  } catch (error) { toast(apiErrorMessage(error)); }
+}
+
+function download(name, type, data) {
+  const anchor = document.createElement('a');
+  anchor.href = URL.createObjectURL(new Blob([data], { type })); anchor.download = name; anchor.click(); URL.revokeObjectURL(anchor.href);
+}
+
+function exportMenu() {
+  open('<h2>导出与备份</h2><p>JSON 包含完整本地数据。公开周报不会包含 API Key。</p><button class="btn-primary" onclick="exportBackup()">导出完整 JSON</button><button class="btn-secondary" style="width:100%" onclick="exportMd()">导出本周周报 Markdown</button><button class="btn-secondary" style="width:100%" onclick="exportCsv()">导出任务 CSV</button>');
+}
+
+function exportBackup() {
+  const backup = structuredClone(state);
+  backup.settings.apiKey = '';
+  download('未尽-完整备份.json', 'application/json', JSON.stringify(backup, null, 2)); close();
+}
+
+function exportMd() {
+  const report = buildReport();
+  const draft = state.reportDrafts[report.weekStart];
+  const md = '# 未尽 · 本周周报\n\n- 完成：' + report.done + '/' + report.total + '\n- 实际专注：' + durationText(report.actualMs) + '\n- 估时偏差：' + report.bias + '\n\n## 工作承诺\n' + report.tasks.map(task => '- ' + task.title + '（' + task.project + '）：' + label(task.status)).join('\n') + '\n\n## 生活安排（不计工作 KPI）\n' + report.life.map(item => '- ' + item.title + '：' + (item.status === 'done' ? '已完成' : '本周安排')).join('\n') + '\n\n## 秘书判断\n' + (draft?.judgment || '尚未生成 AI 判断') + '\n\n## 下周建议\n' + (draft?.suggestions || []).map(item => '- ' + item).join('\n') + '\n';
+  download('未尽-本周周报.md', 'text/markdown;charset=utf-8', md); close();
+}
+
+function exportCsv() {
+  const rows = ['任务,项目,容量池,状态,安排日期,预计分钟,实际分钟,剩余分钟'];
+  state.tasks.forEach(task => rows.push([task.title, task.project, taskPool(task), label(task.status), task.plannedDate, task.estimate, Math.round(taskActualMs(task.id) / 60000), task.remaining || ''].map(value => '"' + String(value).replace(/"/g, '""') + '"').join(',')));
+  download('未尽-任务.csv', 'text/csv;charset=utf-8', '﻿' + rows.join('\n')); close();
+}
+
+async function installApp() {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    const result = await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    toast(result.outcome === 'accepted' ? '正在安装未尽' : '已取消安装');
+    return;
+  }
+  open('<h2>安装未尽</h2><p>请用 Chrome 打开，点击右上角菜单，选择“安装应用”。</p><button class="btn-primary" onclick="close()">我知道了</button>');
+}
+
+window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); deferredInstallPrompt = event; render(); });
+window.addEventListener('appinstalled', () => { deferredInstallPrompt = null; toast('未尽已安装到桌面'); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { rollTemporalState(); render(); } });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=6');
 render();

@@ -1,7 +1,7 @@
 {
   "name": "未尽 - 个人秘书",
   "short_name": "未尽",
-  "description": "看清承诺，安排今天，记录真实投入。",
+  "description": "把混乱原话变成可信周计划的个人 AI 秘书。",
   "lang": "zh-CN",
   "id": "./",
   "start_url": "./?source=pwa",

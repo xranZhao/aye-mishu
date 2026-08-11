@@ -1,5 +1,14 @@
-const CACHE = 'weijin-v5';
+const CACHE = 'weijin-v6';
 const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json', './fonts/weijin-brand.woff2', './icons/icon-192.png', './icons/icon-512.png'];
+
+function offlineCoreAsset(pathname) {
+  if (pathname.endsWith('/') || pathname.endsWith('/index.html')) return './index.html';
+  if (pathname.endsWith('/app.js')) return './app.js';
+  if (pathname.endsWith('/style.css')) return './style.css';
+  if (pathname.endsWith('/manifest.json')) return './manifest.json';
+  return './index.html';
+}
+
 self.addEventListener('install', event => event.waitUntil(
   caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())
 ));
@@ -19,7 +28,7 @@ self.addEventListener('fetch', event => {
       const copy = response.clone();
       caches.open(CACHE).then(cache => cache.put(event.request, copy));
       return response;
-    }).catch(() => caches.match(event.request).then(hit => hit || caches.match('./index.html'))));
+    }).catch(() => caches.match(event.request).then(hit => hit || caches.match(offlineCoreAsset(url.pathname)))));
     return;
   }
 
