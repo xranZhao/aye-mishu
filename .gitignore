@@ -1,0 +1,4 @@
+# 本地服务与浏览器数据不进入仓库
+*.local
+.DS_Store
+Thumbs.db
