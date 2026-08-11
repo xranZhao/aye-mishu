@@ -525,9 +525,9 @@ button{font:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transpar
 /* ── Toast ── */
 .toast{
   position:fixed;z-index:20;
-  left:50%;bottom:calc(var(--nav-h) + 8px + var(--safe-bottom));
-  transform:translate(-50%,80px);
-  background:#2d2c28;color:#fefcf5;
+  left:50%;top:calc(env(safe-area-inset-top, 0px) + 12px);
+  transform:translate(-50%,-80px);
+  background:#e5eee8;color:var(--green-deep);
   padding:7px 14px;border-radius:9px;font-size:12px;font-weight:500;
   box-shadow:0 2px 10px rgba(0,0,0,.1);
   transition:transform .3s cubic-bezier(.22,.61,.36,1);
@@ -536,6 +536,8 @@ button{font:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transpar
 }
 
 .toast.show{transform:translate(-50%,0)}
+
+.draft-reason{margin-top:5px;color:var(--muted);font-size:11px;line-height:1.45}
 
 /* 提示卡片 */
 .notice{
