@@ -59,4 +59,4 @@ function pageToday(){const work=today(), life=state.life.filter(x=>x.status==='p
  function tick(){const el=$('#timer-text');if(!el||!state.timer)return;const d=Date.now()-new Date(state.timer.startedAt);const h=String(Math.floor(d/3600000)).padStart(2,'0'),m=String(Math.floor(d/60000)%60).padStart(2,'0'),s=String(Math.floor(d/1000)%60).padStart(2,'0');el.textContent=`${h}:${m}:${s}`;setTimeout(tick,500)}
  async function installApp(){if(deferredInstallPrompt){deferredInstallPrompt.prompt();const result=await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;toast(result.outcome==='accepted'?'正在安装未尽':'已取消安装');return}open(`<h2>安装未尽</h2><p>请用 Chrome 打开本页，点击右上角菜单，选择“安装应用”或“安装未尽”。华为浏览器的“保存到桌面”通常只是网页快捷方式，仍会显示地址栏。</p><button class="primary" onclick="close()">我知道了</button>`)}
  window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;render()});window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;toast('未尽已安装到桌面')});
- if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');render();
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=3');render();
