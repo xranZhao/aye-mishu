@@ -1,7 +1,8 @@
 /* 未尽：单人自用、离线优先的 AI 秘书。数据与 DeepSeek Key 只保存在本机。 */
 const KEY = 'weijin-state-v1';
 const APP_VERSION = '2026.08.12-claude-fast';
-const MODEL = 'deepseek-v4-pro';
+const MODEL_FLASH = 'deepseek-v4-flash';
+const MODEL_PRO = 'deepseek-v4-pro';
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const $ = selector => document.querySelector(selector);
 const id = () => crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -663,7 +664,7 @@ function projectStats(month) {
 /* ── 设置页 ── */
 function pageSettings() {
   return '<header class="topbar"><div><div class="brand">设置</div><div class="subtitle">数据只保留在这台设备</div></div></header>'
-    + '<section class="setting-card"><div class="eyebrow">DeepSeek AI</div><p>当前模型：' + MODEL + '。密钥不会写进 GitHub 或导出的公开周报。</p><div class="field"><label>API Key</label><input id="api-key" type="password" placeholder="sk-..." value="' + esc(state.settings.apiKey) + '"></div><div class="row"><button class="btn-secondary" onclick="testDeepSeek()">测试连接</button><button class="btn-primary" onclick="saveSettings()">保存设置</button></div></section>'
+    + '<section class="setting-card"><div class="eyebrow">DeepSeek AI</div><p>理解原话：' + MODEL_FLASH + '；排程/复盘：' + MODEL_PRO + '。密钥不会写进 GitHub 或导出的公开周报。</p><div class="field"><label>API Key</label><input id="api-key" type="password" placeholder="sk-..." value="' + esc(state.settings.apiKey) + '"></div><button class="btn-primary" onclick="saveSettings()">保存设置</button></section>'
     + '<section class="setting-card"><div class="eyebrow">两个容量池</div><div class="row"><div class="field"><label>个人项目/周</label><input id="personal-capacity" type="number" min="1" max="100" value="' + state.settings.personalCapacity + '"></div><div class="field"><label>主业专注/周</label><input id="main-capacity" type="number" min="1" max="100" value="' + state.settings.mainCapacity + '"></div></div><p>初始按个人 7 小时、主业显式专注任务 20 小时；四周后用实际数据校准。</p><button class="btn-secondary" onclick="saveSettings()">更新容量</button></section>'
     + '<section class="setting-card"><div class="eyebrow">每日小结</div><div class="field"><label>打开 App 后显示小结的时间</label><input id="reminder-time" type="time" value="' + esc(state.settings.reminderTime) + '"></div><p>PWA 没有后台服务时不会伪装成已推送；下次打开时仍可看到总结。</p><button class="btn-secondary" onclick="saveSettings()">保存时间</button></section>'
     + '<section class="setting-card"><div class="eyebrow">数据</div><p>可导出完整备份。换手机前请先保存 JSON 文件。</p><div class="row"><button class="btn-secondary" onclick="exportMenu()">导出与备份</button><button class="btn-secondary" onclick="legacyCleanupMenu()">整理旧数据</button></div></section>'
@@ -842,7 +843,7 @@ async function understandSecretaryTurn() {
       recentConversation: state.secretary.messages.slice(-12).map(message => ({ role: message.role, content: message.text })),
       context: planningContext()
     };
-    const result = await deepseekJSON(UNDERSTAND_SYSTEM, JSON.stringify(payload), 'low');
+    const result = await deepseekJSON(UNDERSTAND_SYSTEM, JSON.stringify(payload), 'medium', MODEL_FLASH);
     session.mode = result.mode || session.mode;
     session.summary = result.understanding || session.summary;
     session.questions = Array.isArray(result.questions) ? result.questions : [];
@@ -938,7 +939,7 @@ async function buildScheduleProposal() {
   try {
     const overdue = session.mode === 'overdue' ? reviewTasks().map(task => ({ id: task.id, title: task.title, project: task.project, workstream: task.workstream, status: task.status, plannedDate: task.plannedDate, remainingMinutes: taskPendingMinutes(task), priority: task.priority, dependenciesReady: dependencyReady(task) })) : [];
     const payload = { mode: session.mode, summary: session.summary, candidates: session.candidates, overdue, context: planningContext() };
-    const result = await deepseekJSON(scheduleSystemPrompt(session.mode), JSON.stringify(payload), 'high');
+    const result = await deepseekJSON(scheduleSystemPrompt(session.mode), JSON.stringify(payload), 'medium', MODEL_PRO);
     const proposal = normalizeProposal(result);
     state.secretary.proposal = proposal;
     session.status = 'proposed';
@@ -1030,7 +1031,7 @@ async function buildMonthlyProposal() {
 阿野在武汉与是阿野吖是阿野IP下两个独立创作项目，容量冲突时保护阿野在武汉。磕学家已有每月100至200元收入，本月预算上限480分钟，不要求做满。
 给出直接判断，但不得替用户永久决定。只输出 JSON：{"title":"下月项目建议","summary":"结论","judgment":"基于数据和用户表达的判断","recommendations":[{"name":"项目名","status":"状态","monthlyBudgetMinutes":0,"reason":"原因"}]}`;
   try {
-    const result = await deepseekJSON(system, JSON.stringify({ conversation: state.secretary.messages.slice(-16), projects: state.projects, stats: projectStats(monthKey()), userSummary: session.summary }), 'high');
+    const result = await deepseekJSON(system, JSON.stringify({ conversation: state.secretary.messages.slice(-16), projects: state.projects, stats: projectStats(monthKey()), userSummary: session.summary }), 'medium', MODEL_PRO);
     state.secretary.proposal = { id: id(), type: 'monthly', title: result.title, summary: result.summary, judgment: result.judgment, recommendations: Array.isArray(result.recommendations) ? result.recommendations : [], createdAt: new Date().toISOString() };
     session.status = 'proposed'; state.secretary.busy = false;
     appendMessage('assistant', result.summary || '我已经形成下个月的项目配置建议。');
@@ -1059,7 +1060,7 @@ function confirmMonthlyProposal() {
   save();
 }
 
-async function deepseekJSON(system, user, reasoningEffort = 'high') {
+async function deepseekJSON(system, user, reasoningEffort = 'high', model = MODEL_PRO) {
   if (!state.settings.apiKey) throw new Error('NO_KEY');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60000);
@@ -1070,7 +1071,7 @@ async function deepseekJSON(system, user, reasoningEffort = 'high') {
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + state.settings.apiKey },
       body: JSON.stringify({
-        model: MODEL,
+        model: model,
         temperature: 0.2,
         response_format: { type: 'json_object' },
         thinking: { type: 'enabled' },
@@ -1321,7 +1322,7 @@ async function generateWeeklyReport() {
 区分工作和生活；生活不计工作完成率。分析估时偏差、依赖、过载、例外冲刺和项目投入。未完成不自动等于投入不足，也可能是计划过载或受阻。
 给下周最多4条具体建议；建议必须说明继续、顺延、取消、调整估时或先解除哪个依赖。只输出 JSON：{"judgment":"事实判断","suggestions":["建议"]}`;
   try {
-    const result = await deepseekJSON(system, JSON.stringify({ report: reportPayload(report), projects: state.projects, stats: projectStats(monthKey()), exceptionSprint: state.specialWeeks.includes(currentWeekStart()), capacities: { personal: state.settings.personalCapacity, main: state.settings.mainCapacity } }), 'high');
+    const result = await deepseekJSON(system, JSON.stringify({ report: reportPayload(report), projects: state.projects, stats: projectStats(monthKey()), exceptionSprint: state.specialWeeks.includes(currentWeekStart()), capacities: { personal: state.settings.personalCapacity, main: state.settings.mainCapacity } }), 'medium', MODEL_PRO);
     state.reportDrafts[report.weekStart] = { judgment: result.judgment, suggestions: Array.isArray(result.suggestions) ? result.suggestions : [], sourceLabel: MODEL + ' · 基于本周真实数据', generatedAt: new Date().toISOString() };
     close(); save(); toast('AI 周报判断已生成');
   } catch (error) {
@@ -1605,7 +1606,7 @@ async function testDeepSeek() {
   if (!state.settings.apiKey) { toast('请先填写 API Key'); return; }
   toast('正在测试 DeepSeek…');
   try {
-    await deepseekJSON('只输出 JSON：{"ok":true}', '连接测试', 'high');
+    await deepseekJSON('只输出 JSON：{"ok":true}', '连接测试', 'medium', MODEL_PRO);
     persist(); toast('DeepSeek 连接成功');
   } catch (error) { toast(apiErrorMessage(error)); }
 }
