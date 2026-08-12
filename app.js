@@ -238,7 +238,7 @@ function dayText(date) {
 }
 
 function label(status) {
-  return ({ committed: '本周承诺', later: '下周', blocked: '受阻', overdue: '逾期待决', pending_review: '待重排', legacy_review: '旧版待清理', done: '已完成', active: '进行中', paused: '已暂停', cancelled: '已取消' }[status] || status);
+  return ({ committed: '本周承诺', later: '下周', ideas: '有空再做', blocked: '受阻', overdue: '逾期待决', pending_review: '待重排', legacy_review: '旧版待清理', done: '已完成', active: '进行中', paused: '已暂停', cancelled: '已取消' }[status] || status);
 }
 
 function projectStatusLabel(status) {
@@ -269,6 +269,10 @@ function activeTasks(pool) {
   return state.tasks.filter(task => inCurrentWeek(task)
     && ['committed', 'active', 'paused', 'blocked'].includes(task.status)
     && (!pool || taskPool(task) === pool));
+}
+
+function ideasTasks() {
+  return state.tasks.filter(function(t){return t.status==='ideas'});
 }
 
 function reviewTasks() {
@@ -400,6 +404,8 @@ function pageWeek() {
     + (pending.length ? '<button class="review-banner" onclick="startOverdueReview()"><span><b>' + pending.length + ' 件旧事项等待整理</b><small>它们没有被悄悄塞进今天，交给秘书集中重排</small></span><span>去处理 ›</span></button>' : '')
     + '<div class="capacity-grid">' + capacityCardHtml('个人项目', 'personal', personalRemaining) + capacityCardHtml('主业', 'main', mainRemaining) + '</div>'
     + '<button class="btn-primary week-plan-button" onclick="beginSecretaryMode(\'weekly\')">和秘书做本周规划</button>'
+    + '<div class="section-title">任务库 <span class="count">' + ideasTasks().length + ' 项有空再做</span></div>'
+    + '<div class="task-list">' + (ideasTasks().length ? ideasTasks().map(taskRowHtml).join('') : empty('📦', '还没有任务库', '和秘书说「有空再做XX」，会放在这里。')) + '</div>'
     + '<div class="week-calendar">' + days.map(dayCardHtml).join('') + '</div>'
     + '<div class="section-title">下周事项 <span class="count">' + nextItems.length + ' 项</span></div>'
     + '<div class="task-list">' + (nextItems.length ? nextItems.map(taskRowHtml).join('') : empty('📥', '下周还没有事项', '只有你确认放到下周的事情才会出现在这里。')) + '</div>';
@@ -579,7 +585,7 @@ function proposalItemHtml(item) {
   return '<article class="proposal-item" data-proposal-id="' + item.id + '"><button class="proposal-remove" onclick="removeProposalItem(\'' + item.id + '\')" aria-label="删除">×</button><div class="proposal-item-summary"><b>' + esc(item.title) + '</b><small>' + esc([item.project, item.workstream].filter(Boolean).join(' / ') || (item.type === 'life' ? '生活安排' : '未归属')) + ' · ' + hours(item.estimate) + '</small>' + (item.approach ? '<p>' + esc(item.approach) + '</p>' : '') + '</div><details><summary>编辑名称、归属、估时、日期和依赖</summary>'
     + '<div class="field"><label>事项名称</label><input value="' + esc(item.title) + '" onchange="setProposalField(\'' + item.id + '\',\'title\',this.value)"></div>'
     + '<div class="proposal-grid"><div class="field"><label>核心项目</label><select onchange="setProposalField(\'' + item.id + '\',\'project\',this.value)">' + projectOptions(item.project) + '</select></div><div class="field"><label>工作流 / 子项目</label><input value="' + esc(item.workstream || '') + '" onchange="setProposalField(\'' + item.id + '\',\'workstream\',this.value)"></div></div><div class="field"><label>类型</label><select onchange="setProposalField(\'' + item.id + '\',\'type\',this.value)"><option value="work" ' + (item.type !== 'life' ? 'selected' : '') + '>工作</option><option value="life" ' + (item.type === 'life' ? 'selected' : '') + '>生活</option></select></div>'
-    + '<div class="proposal-grid three"><div class="field"><label>预计分钟</label><input type="number" min="5" value="' + (+item.estimate || '') + '" onchange="setProposalField(\'' + item.id + '\',\'estimate\',this.value)"></div><div class="field"><label>安排日期</label><input type="date" value="' + esc(item.plannedDate || '') + '" onchange="setProposalField(\'' + item.id + '\',\'plannedDate\',this.value)"></div><div class="field"><label>位置</label><select onchange="setProposalField(\'' + item.id + '\',\'status\',this.value)"><option value="committed" ' + (item.status !== 'later' ? 'selected' : '') + '>本周</option><option value="later" ' + (item.status === 'later' ? 'selected' : '') + '>下周</option></select></div></div>'
+    + '<div class="proposal-grid three"><div class="field"><label>预计分钟</label><input type="number" min="5" value="' + (+item.estimate || '') + '" onchange="setProposalField(\'' + item.id + '\',\'estimate\',this.value)"></div><div class="field"><label>安排日期</label><input type="date" value="' + esc(item.plannedDate || '') + '" onchange="setProposalField(\'' + item.id + '\',\'plannedDate\',this.value)"></div><div class="field"><label>位置</label><select onchange="setProposalField(\'' + item.id + '\',\'status\',this.value)"><option value="committed" ' + (item.status === 'committed' ? 'selected' : '') + '>本周</option><option value="later" ' + (item.status === 'later' ? 'selected' : '') + '>下周</option><option value="ideas" ' + (item.status === 'ideas' ? 'selected' : '') + '>有空再做</option></select></div></div>'
     + '<div class="field"><label>前置事项（用顿号分开）</label><input value="' + esc(dependencies) + '" placeholder="没有就留空" onchange="setProposalDependencies(\'' + item.id + '\',this.value)"></div>'
     + '<div class="field"><label>完成方式建议</label><input value="' + esc(item.approach || '') + '" onchange="setProposalField(\'' + item.id + '\',\'approach\',this.value)"></div>'
     + '<div class="field"><label>完成标准</label><input value="' + esc(item.completionDefinition || '') + '" onchange="setProposalField(\'' + item.id + '\',\'completionDefinition\',this.value)"></div>'
@@ -820,7 +826,7 @@ const UNDERSTAND_SYSTEM = `你是“未尽”，一位冷静、直接但不咄�
 生活安排占现实时间但不计工作 KPI；关系事项默认不计时器，但仍建议现实占用分钟。
 用户容易过度承诺。你应指出不可信计划，但最终决定属于用户。
 只输出 JSON，不要 Markdown。结构：
-{"mode":"weekly|midweek|change|overdue|monthly","assistantMessage":"先复述理解，再说需要补什么；语气自然","understanding":"对本轮原意的简洁总结","readyToSchedule":true,"finishIntent":false,"questions":[{"question":"只问关键问题","reason":"为何影响排程"}],"suggestedProjects":[{"name":"新项目名","group":"项目组或空","existingProject":"若更适合现有项目则填写","workstream":"现有项目下的工作流","reason":"为何它是独立长期结果","displaces":"它会挤占什么现有重点或容量"}],"candidates":[{"id":"稳定短ID","title":"事项名","type":"work|life","project":"核心项目名","workstream":"工作流或空","estimate":60,"kind":"relation|home|other","statusIntent":"this_week|next_week|later|unclear","deadline":"YYYY-MM-DD或空","dependencies":[{"type":"hard_dependency|external_condition|preferred_order","target":"事项或条件"}],"reason":"判断依据"}]}
+{"mode":"weekly|midweek|change|overdue|monthly","assistantMessage":"先复述理解，再说需要补什么；语气自然","understanding":"对本轮原意的简洁总结","readyToSchedule":true,"finishIntent":false,"questions":[{"question":"只问关键问题","reason":"为何影响排程"}],"suggestedProjects":[{"name":"新项目名","group":"项目组或空","existingProject":"若更适合现有项目则填写","workstream":"现有项目下的工作流","reason":"为何它是独立长期结果","displaces":"它会挤占什么现有重点或容量"}],"candidates":[{"id":"稳定短ID","title":"事项名","type":"work|life","project":"核心项目名","workstream":"工作流或空","estimate":60,"kind":"relation|home|other","statusIntent":"this_week|next_week|later|ideas","deadline":"YYYY-MM-DD或空","dependencies":[{"type":"hard_dependency|external_condition|preferred_order","target":"事项或条件"}],"reason":"判断依据"}]}
 如果用户只是在回答上一轮问题，更新已有理解，不要把回答本身创建成新任务。每轮 candidates 都返回本次会话目前确认到的完整候选列表，不要只返回本轮新增。无法确认估时时可以给参考值，但要说明待用户确认。
 当用户说“就这些、开始排、先排进去、按这些生成计划”或已经回答完最后一个会改变排程的问题时，finishIntent 必须为 true；不要继续循环追问。`;
 
@@ -888,7 +894,7 @@ function normalizeCandidates(items) {
       id: item.id || id(), title,
       type: item.type === 'life' ? 'life' : 'work', project: path.project, workstream: path.workstream,
       estimate: Math.max(0, Number(item.estimate) || 0), kind: item.kind || 'other',
-      statusIntent: item.statusIntent || 'unclear',
+      statusIntent: item.statusIntent || 'ideas',
       deadline: /^\d{4}-\d{2}-\d{2}$/.test(item.deadline || '') ? item.deadline : '',
       dependencies: Array.isArray(item.dependencies) ? item.dependencies : [], reason: item.reason || ''
     };
@@ -959,7 +965,7 @@ function rebalanceProposalItems(items) {
   const counts = {};
   activeTasks().filter(task => task.plannedDate && task.status !== 'blocked').forEach(task => { counts[task.plannedDate] = (counts[task.plannedDate] || 0) + 1; });
   const weekEnd = addDays(planningWeekStart(), 6);
-  items.filter(item => item.type === 'work' && item.status !== 'later').sort((a, b) => (a.priority || 9) - (b.priority || 9)).forEach(item => {
+  items.filter(item => item.type === 'work' && item.status !== 'later' && item.status !== 'ideas').sort((a, b) => (a.priority || 9) - (b.priority || 9)).forEach(item => {
     const pool = item.project === '主业' ? 'main' : 'personal';
     if ((+item.estimate || 0) > available[pool]) {
       item.status = 'later';
@@ -987,12 +993,15 @@ function rebalanceProposalItems(items) {
 function normalizeProposal(result) {
   const items = (Array.isArray(result.items) ? result.items : []).filter(item => item && item.title).map(item => {
     const type = item.type === 'life' ? 'life' : 'work';
-    const status = item.status === 'later' ? 'later' : 'committed';
-    let date = /^\d{4}-\d{2}-\d{2}$/.test(item.plannedDate || '') ? item.plannedDate : (status === 'later' ? nextWeekStart() : planningWeekStart());
-    if (date < isoDate()) date = isoDate();
+    const intent = item.statusIntent || '';
+    const status = intent === 'ideas' ? 'ideas'
+      : item.status === 'later' ? 'later'
+      : 'committed';
+    let date = /^\d{4}-\d{2}-\d{2}$/.test(item.plannedDate || '') ? item.plannedDate : (status === 'later' ? nextWeekStart() : status === 'ideas' ? '' : planningWeekStart());
+    if (status !== 'ideas' && date && date < isoDate()) date = isoDate();
     if (status === 'later' && date < nextWeekStart()) date = nextWeekStart();
-    date = nextSchedulableDate(date, type);
-    const normalizedStatus = date >= nextWeekStart() ? 'later' : status;
+    if (date) date = nextSchedulableDate(date, type);
+    const normalizedStatus = status === 'ideas' ? 'ideas' : date && date >= nextWeekStart() ? 'later' : status;
     const path = inferProjectPath(String(item.title).trim(), String(item.project || '').trim(), String(item.workstream || '').trim());
     return {
       id: item.id || id(), title: String(item.title).trim(), type,
@@ -1201,7 +1210,7 @@ function changeAddedMinutes(change, pool) {
 }
 
 function proposalPoolImpact(proposal, pool) {
-  const added = (proposal.items || []).filter(item => item.type === 'work' && item.status !== 'later' && (item.project === '主业' ? 'main' : 'personal') === pool).reduce((sum, item) => sum + (+item.estimate || 0), 0);
+  const added = (proposal.items || []).filter(item => item.type === 'work' && item.status !== 'later' && item.status !== 'ideas' && (item.project === '主业' ? 'main' : 'personal') === pool).reduce((sum, item) => sum + (+item.estimate || 0), 0);
   const relief = (proposal.changes || []).reduce((sum, change) => sum + changeReliefMinutes(change, pool), 0);
   const reactivated = (proposal.changes || []).reduce((sum, change) => sum + changeAddedMinutes(change, pool), 0);
   return added + reactivated - relief;
@@ -1212,7 +1221,7 @@ function proposalDailyOverload(proposal) {
   const changedIds = new Set((proposal.changes || []).map(change => change.taskId));
   activeTasks().filter(task => !changedIds.has(task.id) && task.status !== 'blocked' && dependencyReady(task)).forEach(task => { counts[task.plannedDate] = (counts[task.plannedDate] || 0) + 1; });
   (proposal.changes || []).filter(change => ['move', 'activate'].includes(change.action) && change.plannedDate).forEach(change => { counts[change.plannedDate] = (counts[change.plannedDate] || 0) + 1; });
-  (proposal.items || []).filter(item => item.type === 'work' && item.status !== 'later' && !(item.externalConditions || []).length).forEach(item => { counts[item.plannedDate] = (counts[item.plannedDate] || 0) + 1; });
+  (proposal.items || []).filter(item => item.type === 'work' && item.status !== 'later' && item.status !== 'ideas' && !(item.externalConditions || []).length).forEach(item => { counts[item.plannedDate] = (counts[item.plannedDate] || 0) + 1; });
   const overloaded = Object.entries(counts).find(([, count]) => count > 3);
   return overloaded ? { date: overloaded[0], count: overloaded[1] } : null;
 }
@@ -1250,6 +1259,7 @@ function confirmProposal(sprint) {
   const proposal = state.secretary.proposal;
   if (!proposal || proposal.type !== 'schedule') return;
   proposal.items.forEach(item => {
+    if (item.status === 'ideas') return;
     if (item.status === 'later' && item.plannedDate < nextWeekStart()) item.plannedDate = nextSchedulableDate(nextWeekStart(), item.type);
     if (item.plannedDate >= nextWeekStart()) item.status = 'later';
     item.plannedDate = nextSchedulableDate(item.plannedDate, item.type);
@@ -1257,7 +1267,7 @@ function confirmProposal(sprint) {
   enforceDependencyDates(proposal.items);
   const unknownProject = proposal.items.find(item => item.project && !state.projects.some(project => project.name === item.project));
   if (unknownProject) { toast('请先确认是否建立项目「' + unknownProject.project + '」'); return; }
-  const invalid = proposal.items.find(item => !String(item.title || '').trim() || !(+item.estimate > 0) || !item.plannedDate || (item.type === 'work' && !item.project));
+  const invalid = proposal.items.filter(function(item){return item.status!=='ideas'}).find(item => !String(item.title || '').trim() || !(+item.estimate > 0) || !item.plannedDate || (item.type === 'work' && !item.project));
   if (invalid) { toast('工作事项必须确认名称、核心项目、预计时间和日期'); return; }
   const over = proposalOverCapacity(proposal);
   if (over && !sprint) { toast('已写入计划（超出正常容量）；本周标记为例外冲刺。'); }
@@ -1270,7 +1280,7 @@ function confirmProposal(sprint) {
       state.life.push({ id: id(), title: item.title.trim(), kind: item.kind || 'other', estimate: +item.estimate, status: 'planned', when: dayText(item.plannedDate), plannedDate: item.plannedDate, weekStart: weekStartOf(item.plannedDate) });
       return;
     }
-    const task = { id: id(), title: item.title.trim(), project: item.project || '', workstream: item.workstream || '', supportsProjects: [], estimate: +item.estimate, remaining: 0, status: item.externalConditions?.length ? 'blocked' : item.status, priority: item.priority || 3, createdAt: new Date().toISOString(), weekStart: weekStartOf(item.plannedDate), plannedDate: item.plannedDate, dependsOn: [], externalConditions: item.externalConditions || [], blockedReason: item.externalConditions?.length ? '等待 ' + item.externalConditions.join('、') : '', capacityPool: item.project === '主业' ? 'main' : 'personal', source: 'secretary', createdByVersion: APP_VERSION, approach: item.approach || '', completionDefinition: item.completionDefinition || '' };
+    const task = { id: id(), title: item.title.trim(), project: item.project || '', workstream: item.workstream || '', supportsProjects: [], estimate: +item.estimate, remaining: 0, status: item.status==='ideas'?'ideas':item.externalConditions?.length?'blocked':item.status, priority: item.priority || 3, createdAt: new Date().toISOString(), weekStart: item.status==='ideas'?currentWeekStart():weekStartOf(item.plannedDate), plannedDate: item.status==='ideas'?'':item.plannedDate, dependsOn: [], externalConditions: item.externalConditions || [], blockedReason: item.externalConditions?.length ? '等待 ' + item.externalConditions.join('、') : '', capacityPool: item.project === '主业' ? 'main' : 'personal', source: 'secretary', createdByVersion: APP_VERSION, approach: item.approach || '', completionDefinition: item.completionDefinition || '' };
     state.tasks.push(task); titleMap.set(task.title, task.id); created.push({ task, names: item.dependsOn || [] });
   });
   created.forEach(entry => {
