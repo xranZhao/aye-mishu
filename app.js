@@ -439,16 +439,14 @@ function pageSecretary() {
   const secretary = state.secretary;
   const session = secretary.session;
   const messages = secretary.messages.slice(-40);
-  return '<header class="topbar secretary-head"><div><div class="brand">秘书</div><div class="subtitle">你说原话，我负责理解、追问和排程</div></div><button class="btn-icon" onclick="secretaryMenu()">⋯</button></header>'
-    + (!state.settings.apiKey ? '<button class="ai-error-card" onclick="go(\'settings\')"><b>DeepSeek 尚未连接</b><span>先去设置 API Key；没有 AI 时不会用标点拆分代替。</span></button>' : '')
-    + '<div class="secretary-mode-tabs">' + ['weekly','midweek','change'].map(function(m){return '<button class="'+(session&&session.mode===m?'active':'')+'" onclick="beginSecretaryMode(\''+m+'\')">'+({weekly:'📋 本周梳理',midweek:'➕ 新增事情',change:'🔄 情况变化'}[m])+'</button>'}).join('') + '</div>'
-    + (session ? '<div class="session-strip"><span>' + sessionLabel(session.mode) + '</span><small>' + sessionStatusLabel(session.status) + '</small></div>' : '')
-    + '<section class="conversation">' + (messages.length ? messages.map(messageHtml).join('') : secretaryWelcomeHtml()) + (secretary.busy ? busyMessageHtml() : '') + '</section>'
+  return '<header class=”topbar secretary-head”><div><div class=”brand”>秘书</div><div class=”subtitle”>你说原话，我负责理解、追问和排程</div></div></header>'
+    + (!state.settings.apiKey ? '<button class=”ai-error-card” onclick=”go(\'settings\')”><b>DeepSeek 尚未连接</b><span>先去设置 API Key；没有 AI 时不会用标点拆分代替。</span></button>' : '')
+    + '<section class=”conversation”>' + (messages.length ? messages.map(messageHtml).join('') : secretaryWelcomeHtml()) + (secretary.busy ? busyMessageHtml() : '') + '</section>'
     + (session?.suggestedProjects?.length ? suggestedProjectsHtml(session.suggestedProjects) : '')
     + (secretary.error ? errorCardHtml(secretary.error) : '')
     + (secretary.proposal ? proposalHtml(secretary.proposal) : '')
     + (!secretary.proposal && session?.status === 'confirmed' && secretary.lastPlan ? confirmedPlanHtml(secretary.lastPlan) : '')
-    + (session && ['collecting', 'clarifying'].includes(session.status) && !secretary.proposal ? '<p class="conversation-hint">继续输入即可；准备好了就直接说“开始排”。</p>' : '');
+    + (session && ['collecting', 'clarifying'].includes(session.status) && !secretary.proposal ? '<p class=”conversation-hint”>继续输入即可；准备好了就直接说”开始排”。</p>' : '');
 }
 
 function secretaryWelcomeHtml() {
@@ -537,12 +535,10 @@ function proposalHtml(proposal) {
   const changes = proposal.changes || [];
   const over = proposalOverCapacity(proposal);
   return '<section class="proposal"><div class="proposal-kicker">秘书的建议 · 你确认后才生效</div><h2>' + esc(proposal.title || '这样安排最可信') + '</h2><p class="proposal-summary">' + esc(proposal.summary || '') + '</p>'
-    + (proposal.reasoning?.length ? '<ul class="reason-list">' + proposal.reasoning.map(reason => '<li>' + esc(reason) + '</li>').join('') + '</ul>' : '')
-    + (proposal.executionAdvice?.length ? '<div class="execution-advice"><h3>建议这样完成</h3><ul>' + proposal.executionAdvice.map(item => '<li>' + esc(item) + '</li>').join('') + '</ul></div>' : '')
     + (changes.length ? '<div class="proposal-block"><h3>需要调整已有计划</h3>' + changes.map(changeHtml).join('') + '</div>' : '')
     + '<div class="proposal-block"><div class="proposal-block-head"><h3>' + (items.length ? '本周与后续安排' : '没有新增事项') + '</h3><button onclick="addProposalItem()">＋ 自加</button></div>' + proposalDayGroupsHtml(items) + '</div>'
     + (over ? '<div class="notice warn">' + esc(over) + '</div>' : '')
-    + '<div class="proposal-actions"><button class="btn-primary" onclick="confirmProposal(' + (!!over) + ')">' + (over ? '确认并明确开启例外冲刺' : '确认并写入计划') + '</button><button class="btn-secondary" onclick="moveProposalToNextWeek()">新事项放到下周</button><button class="btn-text" onclick="discardProposal()">继续和秘书讨论</button></div></section>';
+    + '<div class="proposal-actions"><button class="btn-primary" onclick="confirmProposal(' + (!!over) + ')">确认并写入计划</button><button class="btn-secondary" onclick="moveProposalToNextWeek()">新事项放到下周</button><button class="btn-text" onclick="discardProposal()">继续和秘书讨论</button></div></section>';
 }
 
 function proposalDayGroupsHtml(items, readonly = false) {
@@ -705,8 +701,16 @@ function render() {
 }
 
 function dockHtml() {
-  const contextClass = view === 'secretary' ? 'chat-compose' : 'quick-capture';
-  return '<form class="input-dock ' + contextClass + '" onsubmit="submitSecretary(event)"><input id="secretary-input" autocomplete="off" placeholder="' + (view === 'secretary' ? '继续告诉秘书…' : '随时告诉秘书一件事…') + '" value="' + esc(draftText) + '"><button class="send" aria-label="发送">↑</button></form>';
+  if (view === 'secretary') return secretaryDockHtml();
+  return '<form class="input-dock quick-capture" onsubmit="submitSecretary(event)"><input id="secretary-input" autocomplete="off" placeholder="随时告诉秘书一件事…" value="' + esc(draftText) + '"><button class="send" aria-label="发送">↑</button></form>';
+}
+
+function secretaryDockHtml() {
+  const session = state.secretary.session;
+  return '<div class="secretary-bottom-bar">'
+    + '<div class="secretary-mode-tabs">' + ['weekly','midweek','change'].map(function(m){return '<button class="'+(session&&session.mode===m?'active':'')+'" onclick="beginSecretaryMode(\''+m+'\')">'+({weekly:'📋 梳理',midweek:'➕ 新增',change:'🔄 变化'}[m])+'</button>'}).join('') + '<button class="secretary-menu-btn" onclick="secretaryMenu()">⋯</button></div>'
+    + '<form class="input-dock chat-compose" onsubmit="submitSecretary(event)"><input id="secretary-input" autocomplete="off" placeholder="继续告诉秘书…" value="' + esc(draftText) + '"><button class="send" aria-label="发送">↑</button></form>'
+    + '</div>';
 }
 
 function navHtml() {
@@ -1255,7 +1259,8 @@ function confirmProposal(sprint) {
   const invalid = proposal.items.find(item => !String(item.title || '').trim() || !(+item.estimate > 0) || !item.plannedDate || (item.type === 'work' && !item.project));
   if (invalid) { toast('工作事项必须确认名称、核心项目、预计时间和日期'); return; }
   const over = proposalOverCapacity(proposal);
-  if (over && !sprint) { toast('这份方案仍然超容量，请先取舍'); return; }
+  if (over && !sprint) { toast('已写入计划（超出正常容量）；本周标记为例外冲刺。'); }
+  if (over && !sprint && !state.specialWeeks.includes(currentWeekStart())) state.specialWeeks.push(currentWeekStart());
   applyProposalChanges(proposal.changes || []);
   const titleMap = new Map(state.tasks.map(task => [task.title, task.id]));
   const created = [];

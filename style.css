@@ -52,7 +52,7 @@ body::before{display:none}
 }
 
 .app-shell.with-quick-dock{padding-bottom:calc(var(--nav-h) + var(--dock-h) + 18px + var(--safe-bottom))}
-.app-shell.with-chat-dock{padding-bottom:calc(var(--nav-h) + var(--chat-dock-h) + 18px + var(--safe-bottom))}
+.app-shell.with-chat-dock{padding-bottom:calc(var(--nav-h) + 120px + var(--safe-bottom))}
 
 h1,h2,h3{font-family:var(--serif)}
 h1{font-size:18px;line-height:1.25;letter-spacing:.02em;font-weight:700}
@@ -683,28 +683,44 @@ button{font:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transpar
 /* ── 秘书会话 ── */
 .secretary-head{padding-bottom:12px}
 
-.secretary-mode-tabs{
-  display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:9px;
+/* 秘书底部工具栏（模式 tab + 菜单 + 输入栏） */
+.secretary-bottom-bar{
+  position:fixed;z-index:4;left:50%;bottom:calc(var(--nav-h) + 2px + var(--safe-bottom));
+  transform:translateX(-50%);width:min(480px,calc(100vw - 20px));
+  background:rgba(249,246,237,.96);backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  border-radius:14px;border:1px solid rgba(232,228,216,.85);
+  box-shadow:0 -1px 8px rgba(0,0,0,.04);
+  padding:8px 8px 6px;
 }
 
-.secretary-mode-tabs button{
-  background:var(--card);border:1px solid var(--line);border-radius:9px;
-  color:var(--green-deep);font-size:10px;font-weight:700;padding:8px 3px;
+.secretary-bottom-bar .secretary-mode-tabs{
+  display:grid;grid-template-columns:1fr 1fr 1fr 36px;gap:5px;margin-bottom:6px;
+}
+
+.secretary-bottom-bar .secretary-mode-tabs button{
+  background:var(--card);border:1px solid var(--line);border-radius:8px;
+  color:var(--green-deep);font-size:10px;font-weight:700;padding:7px 2px;
   transition:all .15s;
 }
 
-.secretary-mode-tabs button.active{
+.secretary-bottom-bar .secretary-mode-tabs button.active{
   background:var(--green-deep);color:#fff;border-color:var(--green-deep);
 }
 
-.session-strip{
-  display:flex;align-items:center;justify-content:space-between;
-  border-radius:9px;background:var(--green-bg);color:var(--green-deep);
-  padding:7px 9px;margin-bottom:11px;
+.secretary-menu-btn{
+  background:var(--card);border:1px solid var(--line);border-radius:8px;
+  color:var(--muted);font-size:14px;display:grid;place-items:center;padding:0;
 }
 
-.session-strip span{font-size:11px;font-weight:750}
-.session-strip small{font-size:9px;color:var(--green)}
+.secretary-bottom-bar .input-dock{
+  position:static;transform:none;width:100%;border:0;box-shadow:none;
+  border-radius:10px;background:rgba(254,252,245,.95);
+}
+
+/* 清理不再使用的顶部模式 tab 和 session strip */
+.secretary-actions{display:none}
+.session-strip{display:none}
 
 .ai-error-card{
   width:100%;display:grid;gap:2px;text-align:left;margin-bottom:8px;
