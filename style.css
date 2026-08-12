@@ -613,6 +613,15 @@ button{font:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transpar
 
 .danger{color:var(--danger)}
 
+/* ── 快速记录 ── */
+.quick-record-btn{background:var(--warm)!important;color:var(--green)!important;font-size:12px!important;box-shadow:none!important;margin-right:2px}
+.quick-text-row{display:flex;gap:8px;margin:8px 0 12px}
+.quick-text-row input{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--card)}
+.quick-match-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+.quick-match-item b{flex:1;font-size:13px}
+.quick-match-item small{font-size:10px;color:var(--muted);margin:0 6px}
+.quick-match-item span{font-size:10px;color:var(--green);font-weight:700;white-space:nowrap}
+
 /* ── 今日提醒与真实总结 ── */
 .overdue-card{
   width:100%;margin:10px 0;background:#fef3e4;color:#7d5428;

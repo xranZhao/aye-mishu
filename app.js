@@ -703,7 +703,7 @@ function render() {
 
 function dockHtml() {
   if (view === 'secretary') return secretaryDockHtml();
-  return '<form class="input-dock quick-capture" onsubmit="submitSecretary(event)"><input id="secretary-input" autocomplete="off" placeholder="随时告诉秘书一件事…" value="' + esc(draftText) + '"><button class="send" aria-label="发送">↑</button></form>';
+  return '<form class="input-dock quick-capture" onsubmit="submitSecretary(event)"><input id="secretary-input" autocomplete="off" placeholder="随时告诉秘书一件事…" value="' + esc(draftText) + '"><button class="send quick-record-btn" type="button" aria-label="快速记录" onclick="quickRecordMenu()">⏱</button><button class="send" aria-label="发送">↑</button></form>';
 }
 
 function secretaryDockHtml() {
@@ -766,7 +766,7 @@ async function submitSecretary(event) {
   const text = input?.value.trim();
   if (!text) { toast('先告诉秘书一件事'); return; }
   draftText = '';
-  if (view !== 'secretary') view = 'secretary';
+  if (view === 'today') { quickRecordTryTextDirect(text); return; }
   if (!state.secretary.session || ['confirmed'].includes(state.secretary.session.status)) state.secretary.session = newSession('midweek');
   if (state.secretary.proposal) {
     state.secretary.proposal = null;
@@ -1670,6 +1670,97 @@ function hardReset() {
 function hardResetConfirm() {
   localStorage.removeItem(KEY);
   location.reload();
+}
+
+/* ── 快速记录已完成事项 ── */
+function quickRecordTryTextDirect(text) {
+  var minutes = 0;var match = text.match(/(\d+)\s*(小时|h|分钟|min|m)/i);if(match){minutes = String(match[1]).toLowerCase().includes('小')||String(match[1]).toLowerCase().includes('h')?parseInt(match[1])*60:parseInt(match[1])}
+  var clean = text.replace(/(\d+)\s*(小时|h|分钟|min|m)/i,'').replace(/[，。,. ]/g,'').trim();
+  if(!clean&&!minutes){toast('没识别到事项名，请用"做了XX，N分钟"格式');return}
+  var matches = state.tasks.filter(function(t){return t.status!=='done'&&t.status!=='cancelled'}).map(function(t){
+    var score = 0;var tl = clean.toLowerCase();
+    t.title.toLowerCase().split('').forEach(function(c){if(tl.includes(c))score++});
+    score = score / Math.max(t.title.length,1);
+    if(tl.includes(t.title.slice(0,3))||t.title.includes(tl.slice(0,3)))score+=0.5;
+    return {t:t,score:score};
+  }).filter(function(x){return x.score>0.25}).sort(function(a,b){return b.score-a.score});
+  if(matches.length>=1){
+    quickRecordConfirm(matches[0].t.id, minutes);
+  }else{
+    quickRecordNew(clean, minutes);
+  }
+}
+
+function quickRecordMenu() {
+  const recent = state.tasks.filter(function(t){return t.status!=='done'&&t.status!=='cancelled'}).sort(function(a,b){return new Date(b.createdAt||0)-new Date(a.createdAt||0)}).slice(0,12);
+  if(!recent.length){quickRecordNew();return}
+  var list = recent.map(function(t){
+    return '<button class="quick-match-item" onclick="quickRecordConfirm(\''+t.id+'\')"><b>'+esc(t.title)+'</b><small>'+esc(t.project||'未归属')+' · '+label(t.status)+'</small><span>选这个</span></button>';
+  }).join('');
+  open('<h2>快速记录已完成事项</h2><p style="margin-bottom:0">说"下午做了视频剪辑，输入120分钟"也自动识别。</p>'
+    +'<div class="quick-text-row"><input id="quick-text" placeholder="先试试直接输入…"><button class="btn-primary" style="width:auto" onclick="quickRecordTryText()">识别</button></div>'
+    +'<div class="notice" id="quick-parse-result" style="display:none;margin-top:4px"></div>'
+    +'<p style="margin-top:12px">或者直接选一项已完成：</p>'
+    + list.join('')
+    +'<button class="btn-text" onclick="quickRecordNew()">都不是，手动创建</button>');
+}
+
+function quickRecordTryText() {
+  var text = $('#quick-text')?.value.trim();
+  if(!text){toast('先输入内容');return}
+  var minutes = 0;var m = text.match(/(\d+)\s*(小时|h|分钟|min|m)/i);if(m){minutes = m[1].toLowerCase().includes('小')||m[1].toLowerCase().includes('h')?parseInt(m[1])*60:parseInt(m[1])}
+  var clean = text.replace(/(\d+)\s*(小时|h|分钟|min|m)/i,'').replace(/[，。,. ]/g,'').trim();
+  if(!clean&&!minutes){toast('没识别到事项名');return}
+  var matches = state.tasks.filter(function(t){return t.status!=='done'&&t.status!=='cancelled'}).map(function(t){
+    var score = 0;var tl = clean.toLowerCase();
+    t.title.toLowerCase().split('').forEach(function(c){if(tl.includes(c))score++});
+    score = score / Math.max(t.title.length,1);
+    if(tl.includes(t.title.slice(0,3))||t.title.includes(tl.slice(0,3)))score+=0.5;
+    return {t:t,score:score};
+  }).filter(function(x){return x.score>0.25}).sort(function(a,b){return b.score-a.score});
+  var resultEl = document.getElementById('quick-parse-result');
+  if(matches.length>=1){
+    var t = matches[0].t;
+    resultEl.style.display='block';
+    resultEl.innerHTML = '识别：<b>'+esc(t.title)+'</b>（'+esc(t.project||'未归属')+'）· '+(minutes||(+t.estimate||0))+' min<br><button class="btn-primary" style="margin-top:4px" onclick="quickRecordConfirm(\''+t.id+'\','+minutes+')">确认记录</button> <button class="btn-text" onclick="quickRecordNew(\''+esc(clean)+'\','+minutes+')">手动创建</button>';
+  }else{
+    resultEl.style.display='block';
+    resultEl.innerHTML = '没有匹配到，'+(clean?'当作「'+esc(clean)+'」创建':'手动创建')+'：<button class="btn-primary" style="margin-top:4px" onclick="quickRecordNew(\''+esc(clean)+'\','+minutes+')">创建并记录</button>';
+  }
+}
+
+function quickRecordConfirm(taskId, actualMin) {
+  var t = state.tasks.find(function(x){return x.id===taskId});
+  if(!t)return;
+  actualMin = actualMin||(+t.estimate||0);
+  var endedAt = new Date().toISOString();
+  var startedAt = new Date(Date.now()-actualMin*60000).toISOString();
+  state.sessions.push({id:id(),taskId:t.id,startedAt:startedAt,endedAt:endedAt,durationMs:actualMin*60000,weekStart:weekStartOf(startedAt)});
+  t.status='done';t.completedAt=endedAt;t.weekStart=weekStartOf(startedAt);t.remaining=0;
+  if(!t.estimate||t.estimate<actualMin)t.estimate=actualMin;
+  close();save();toast('已记录：'+t.title+' · '+actualMin+' 分钟 ✓');
+}
+
+function quickRecordNew(title, actualMin) {
+  close();
+  var projects = state.projects.map(function(p){return '<option value="'+esc(p.name)+'">'+esc(p.group?p.group+' / '+p.name:p.name)+'</option>'}).join('');
+  open('<h2>手动创建并记录完成</h2>'
+    +'<div class="field"><label>事项名称</label><input id="qr-title" value="'+(title||'')+'"></div>'
+    +'<div class="field"><label>核心项目</label><select id="qr-project">'+projects+'</select></div>'
+    +'<div class="field"><label>实际耗时（分钟）</label><input id="qr-minutes" type="number" min="5" value="'+(actualMin||60)+'"></div>'
+    +'<button class="btn-primary" onclick="quickRecordSaveNew()">保存记录</button>');
+}
+
+function quickRecordSaveNew() {
+  var title = $('#qr-title')?.value.trim();
+  var project = $('#qr-project')?.value;
+  var minutes = +$('#qr-minutes')?.value||0;
+  if(!title||!project||!minutes){toast('请填写名称、项目和耗时');return}
+  var t = {id:id(),title:title,project:project,workstream:'',estimate:minutes,remaining:0,status:'done',priority:3,createdAt:new Date().toISOString(),weekStart:weekStartOf(),plannedDate:isoDate(),dependsOn:[],externalConditions:[],supportsProjects:[],capacityPool:project==='主业'?'main':'personal',source:'quick_record',createdByVersion:APP_VERSION,approach:'',completionDefinition:'',completedAt:new Date().toISOString()};
+  state.tasks.push(t);
+  var endedAt = new Date().toISOString();
+  state.sessions.push({id:id(),taskId:t.id,startedAt:new Date(Date.now()-minutes*60000).toISOString(),endedAt:endedAt,durationMs:minutes*60000,weekStart:weekStartOf()});
+  close();save();toast('已记录：'+title+' · '+minutes+' 分钟 ✓');
 }
 
 if ('serviceWorker' in navigator) {
