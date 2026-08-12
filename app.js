@@ -1383,7 +1383,13 @@ function openTimerOverlay(taskId) {
   if (!task) return;
   document.getElementById('timer-overlay')?.remove();
   const paused = state.timer?.paused;
-  document.body.insertAdjacentHTML('beforeend', '<div class="timer-overlay" id="timer-overlay"><button class="timer-close" onclick="closeTimerOverlay()">✕</button><div class="timer-label" id="timer-label">' + (paused ? '已暂停' : '正在专注') + '</div><div class="timer-task">' + esc(task.title) + '</div><div class="timer-ring">' + ringSvg(0, 200, 6, 'ring-fill') + '<div class="timer-display" id="timer-display">' + timerClock(taskActualMs(taskId)) + '</div></div><div class="timer-actions"><button class="btn-secondary" id="timer-toggle" onclick="' + (paused ? 'resumeTimer()' : 'pauseTimer()') + '">' + (paused ? '▶ 继续' : '⏸ 暂停') + '</button><button class="btn-primary" onclick="finishTask(\'' + taskId + '\')">✓ 结束</button></div></div>');
+  const label = paused ? '已暂停' : '正在专注';
+  const toggleLabel = paused ? '▶ 继续' : '⏸ 暂停';
+  const toggleAction = paused ? 'resumeTimer()' : 'pauseTimer()';
+  document.body.insertAdjacentHTML('beforeend', '<div class="timer-overlay" id="timer-overlay"><button class="timer-close" onclick="closeTimerOverlay()">✕</button><div class="timer-label">' + esc(task.project||'') + '</div><div class="timer-task" id="timer-label-top">' + label + '</div><div class="timer-task">' + esc(task.title) + '</div><div class="timer-ring">' + ringSvg(0, 200, 6, 'ring-fill') + '<div class="timer-display" id="timer-display">' + timerClock(taskActualMs(taskId)) + '</div></div><div class="timer-projection" id="timer-projection">预计 ' + hours(+task.estimate||0) + '</div><div class="timer-actions"><button class="btn-secondary" id="timer-toggle" onclick="' + toggleAction + '">' + toggleLabel + '</button><button class="btn-primary" onclick="finishTask(\'' + taskId + '\')">✓ 结束</button></div></div>');
+  cancelAnimationFrame(_timerRAF);
+  _timerRAF = requestAnimationFrame(timerOverlayTick);
+}
   cancelAnimationFrame(_timerRAF);
   _timerRAF = requestAnimationFrame(timerOverlayTick);
 }
@@ -1397,9 +1403,26 @@ function timerOverlayTick() {
   if (element) element.textContent = timerClock(totalMs);
   const task = state.tasks.find(item => item.id === state.timer.taskId);
   const totalEstimate = (+task?.estimate || 60) * 60000;
-  const pct = Math.min(1, totalMs / totalEstimate);
+  const pct = totalMs / totalEstimate;
+  const clampPct = Math.min(1, pct);
   const ring = document.querySelector('#timer-overlay .ring-fill');
-  if (ring) { const radius = 97; const circumference = 2 * Math.PI * radius; ring.setAttribute('stroke-dashoffset', circumference * (1 - pct)); }
+  if (ring) {
+    const radius = 97; const circumference = 2 * Math.PI * radius;
+    ring.setAttribute('stroke-dashoffset', circumference * (1 - clampPct));
+    if (pct > 1) ring.style.stroke = '#d4a853';
+    else ring.style.stroke = '';
+  }
+  const label = document.getElementById('timer-label-top');
+  if (label && pct > 1) {
+    var overMins = Math.floor((totalMs - totalEstimate) / 60000);
+    label.textContent = '已超时 +' + overMins + 'm · 正在专注';
+    label.style.color = '#d4a853';
+  }
+  const proj = document.getElementById('timer-projection');
+  if (proj) {
+    if (pct > 1) proj.innerHTML = '预估 ' + hours(+task.estimate||0) + ' · <b style="color:#d4a853">超时 +' + Math.floor((totalMs - totalEstimate) / 60000) + 'm</b>';
+    else proj.innerHTML = '预估 ' + hours(+task.estimate||0) + ' · 已用 ' + Math.round(pct * 100) + '%';
+  }
   _timerRAF = requestAnimationFrame(timerOverlayTick);
 }
 
@@ -1450,7 +1473,10 @@ function finishTask(taskId) {
   }
   const task = state.tasks.find(item => item.id === taskId);
   if (!task) return;
-  open('<h2>这件事完成了吗？</h2><p>未完成也不是失败。告诉秘书真实剩余时间。</p><div class="notice">' + esc(task.title) + ' · 已投入 ' + durationText(taskActualMs(taskId)) + '</div><div class="row" style="margin-top:16px"><button class="btn-secondary" onclick="markRemaining(\'' + taskId + '\')">还没完成</button><button class="btn-primary" onclick="markDone(\'' + taskId + '\')">已完成</button></div>');
+  const actual = taskActualMs(taskId);
+  const estimate = (+task.estimate || 60) * 60000;
+  const overMsg = actual > estimate ? ' · 超预估 ' + hours((actual - estimate) / 60000) : '';
+  open('<h2>这件事完成了吗？</h2><p>未完成也不是失败。告诉秘书真实剩余时间。</p><div class="notice">' + esc(task.title) + ' · 实际 ' + durationText(actual) + ' / 预估 ' + hours(+task.estimate||0) + overMsg + '</div><div class="row" style="margin-top:16px"><button class="btn-secondary" onclick="markRemaining(\'' + taskId + '\')">还没完成</button><button class="btn-primary" onclick="markDone(\'' + taskId + '\')">已完成</button></div>');
 }
 
 function markDone(taskId) {
