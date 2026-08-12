@@ -880,7 +880,7 @@ async function understandSecretaryTurn() {
     render();
     const latestInput = session.rawInputs.at(-1) || '';
     const explicitFinish = !!result.finishIntent || /就这些|开始排|开始整理|帮我排|排一下|没有了|先这样/.test(latestInput);
-    if (result.readyToSchedule && !session.questions.length && (session.mode !== 'weekly' || explicitFinish)) await buildScheduleProposal();
+    if (explicitFinish && result.readyToSchedule && !session.questions.length) await buildScheduleProposal();
   } catch (error) {
     secretaryFailure(error);
   }
