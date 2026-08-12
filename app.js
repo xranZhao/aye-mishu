@@ -1,6 +1,6 @@
 /* 未尽：单人自用、离线优先的 AI 秘书。数据与 DeepSeek Key 只保存在本机。 */
 const KEY = 'weijin-state-v1';
-const APP_VERSION = '2026.08.11-3-claude';
+const APP_VERSION = '2026.08.12-claude-fast';
 const MODEL = 'deepseek-v4-pro';
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const $ = selector => document.querySelector(selector);
@@ -795,13 +795,13 @@ function planningContext() {
       observationZone: false,
       userConfirmationRequired: true
     },
-    projects: state.projects.map(project => ({ name: project.name, group: project.group, status: project.status, priority: project.priority, protected: !!project.protected, outcome: project.outcome, monthlyBudgetMinutes: project.monthlyBudgetMinutes })),
+    projects: state.projects.map(project => ({ name: project.name, group: project.group, status: project.status, priority: project.priority, protected: !!project.protected, outcome: project.outcome })),
     projectDecisions: state.projectDecisions,
-    currentTasks: activeTasks().map(task => ({ id: task.id, title: task.title, project: task.project, workstream: task.workstream, supportsProjects: task.supportsProjects || [], pool: taskPool(task), status: task.status, estimateMinutes: task.estimate, actualMinutes: Math.round(taskActualMs(task.id) / 60000), remainingMinutes: Math.round(taskPendingMinutes(task)), plannedDate: task.plannedDate, blockedReason: task.blockedReason, dependencies: (task.dependsOn || []).map(depId => state.tasks.find(item => item.id === depId)?.title).filter(Boolean), externalConditions: task.externalConditions || [] })),
-    unplacedTasks: reviewTasks().map(task => ({ id: task.id, title: task.title, project: task.project, workstream: task.workstream, status: task.status, estimateMinutes: task.estimate, plannedDate: task.plannedDate })),
-    life: state.life.filter(inCurrentWeek).map(item => ({ id: item.id, title: item.title, plannedDate: item.plannedDate, kind: item.kind, estimateMinutes: item.estimate })),
-    recentEstimateHistory: state.tasks.filter(task => task.status === 'done').slice(-20).map(task => ({ title: task.title, project: task.project, estimateMinutes: task.estimate, actualMinutes: Math.round(taskActualMs(task.id) / 60000) })),
-    currentMonthStats: projectStats(monthKey())
+    currentTasks: activeTasks().map(task => ({ id: task.id, title: task.title, project: task.project, workstream: task.workstream, pool: taskPool(task), status: task.status, estimateMinutes: task.estimate, actualMinutes: Math.round(taskActualMs(task.id) / 60000), remainingMinutes: Math.round(taskPendingMinutes(task)), plannedDate: task.plannedDate, blockedReason: task.blockedReason, dependencies: (task.dependsOn || []).map(depId => state.tasks.find(item => item.id === depId)?.title).filter(Boolean) })),
+    unplacedTasks: reviewTasks().slice(0, 15).map(task => ({ id: task.id, title: task.title, project: task.project, workstream: task.workstream, status: task.status, estimateMinutes: task.estimate })),
+    life: state.life.filter(inCurrentWeek).slice(0, 10).map(item => ({ id: item.id, title: item.title, plannedDate: item.plannedDate, kind: item.kind, estimateMinutes: item.estimate })),
+    recentEstimateHistory: state.tasks.filter(task => task.status === 'done').slice(-10).map(task => ({ title: task.title, project: task.project, estimateMinutes: task.estimate, actualMinutes: Math.round(taskActualMs(task.id) / 60000) })),
+    currentMonthStats: projectStats(monthKey()).map(s => ({ name: s.name, minutes: s.minutes, income: s.income }))
   };
 }
 
@@ -838,7 +838,7 @@ async function understandSecretaryTurn() {
       recentConversation: state.secretary.messages.slice(-12).map(message => ({ role: message.role, content: message.text })),
       context: planningContext()
     };
-    const result = await deepseekJSON(UNDERSTAND_SYSTEM, JSON.stringify(payload), 'high');
+    const result = await deepseekJSON(UNDERSTAND_SYSTEM, JSON.stringify(payload), 'low');
     session.mode = result.mode || session.mode;
     session.summary = result.understanding || session.summary;
     session.questions = Array.isArray(result.questions) ? result.questions : [];
@@ -934,7 +934,7 @@ async function buildScheduleProposal() {
   try {
     const overdue = session.mode === 'overdue' ? reviewTasks().map(task => ({ id: task.id, title: task.title, project: task.project, workstream: task.workstream, status: task.status, plannedDate: task.plannedDate, remainingMinutes: taskPendingMinutes(task), priority: task.priority, dependenciesReady: dependencyReady(task) })) : [];
     const payload = { mode: session.mode, summary: session.summary, candidates: session.candidates, overdue, context: planningContext() };
-    const result = await deepseekJSON(scheduleSystemPrompt(session.mode), JSON.stringify(payload), 'max');
+    const result = await deepseekJSON(scheduleSystemPrompt(session.mode), JSON.stringify(payload), 'high');
     const proposal = normalizeProposal(result);
     state.secretary.proposal = proposal;
     session.status = 'proposed';
@@ -1026,7 +1026,7 @@ async function buildMonthlyProposal() {
 阿野在武汉与是阿野吖是阿野IP下两个独立创作项目，容量冲突时保护阿野在武汉。磕学家已有每月100至200元收入，本月预算上限480分钟，不要求做满。
 给出直接判断，但不得替用户永久决定。只输出 JSON：{"title":"下月项目建议","summary":"结论","judgment":"基于数据和用户表达的判断","recommendations":[{"name":"项目名","status":"状态","monthlyBudgetMinutes":0,"reason":"原因"}]}`;
   try {
-    const result = await deepseekJSON(system, JSON.stringify({ conversation: state.secretary.messages.slice(-16), projects: state.projects, stats: projectStats(monthKey()), userSummary: session.summary }), 'max');
+    const result = await deepseekJSON(system, JSON.stringify({ conversation: state.secretary.messages.slice(-16), projects: state.projects, stats: projectStats(monthKey()), userSummary: session.summary }), 'high');
     state.secretary.proposal = { id: id(), type: 'monthly', title: result.title, summary: result.summary, judgment: result.judgment, recommendations: Array.isArray(result.recommendations) ? result.recommendations : [], createdAt: new Date().toISOString() };
     session.status = 'proposed'; state.secretary.busy = false;
     appendMessage('assistant', result.summary || '我已经形成下个月的项目配置建议。');
@@ -1058,7 +1058,7 @@ function confirmMonthlyProposal() {
 async function deepseekJSON(system, user, reasoningEffort = 'high') {
   if (!state.settings.apiKey) throw new Error('NO_KEY');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90000);
+  const timer = setTimeout(() => controller.abort(), 60000);
   let response;
   try {
     response = await fetch(API_URL, {
@@ -1100,7 +1100,7 @@ function apiErrorMessage(error) {
   const code = error?.message || '';
   if (code === 'NO_KEY') return '尚未配置 DeepSeek API Key。你的原话已经保留，请先去设置。';
   if (code === 'NETWORK') return '浏览器没有成功连接 DeepSeek。请检查网络、代理或浏览器跨域限制。';
-  if (code === 'TIMEOUT') return 'DeepSeek 超过 90 秒没有返回。你的原话没有丢失，可以重试。';
+  if (code === 'TIMEOUT') return 'DeepSeek 超过 60 秒没有返回。你的原话没有丢失，可以重试。';
   if (code === 'HTTP_401' || code === 'HTTP_403') return 'API Key 无效或没有权限，请在设置中重新保存。';
   if (code === 'HTTP_402') return 'DeepSeek 账户余额不足。充值后可以直接重试。';
   if (code === 'HTTP_429') return 'DeepSeek 请求过于频繁，请稍后重试。';
@@ -1316,7 +1316,7 @@ async function generateWeeklyReport() {
 区分工作和生活；生活不计工作完成率。分析估时偏差、依赖、过载、例外冲刺和项目投入。未完成不自动等于投入不足，也可能是计划过载或受阻。
 给下周最多4条具体建议；建议必须说明继续、顺延、取消、调整估时或先解除哪个依赖。只输出 JSON：{"judgment":"事实判断","suggestions":["建议"]}`;
   try {
-    const result = await deepseekJSON(system, JSON.stringify({ report: reportPayload(report), projects: state.projects, stats: projectStats(monthKey()), exceptionSprint: state.specialWeeks.includes(currentWeekStart()), capacities: { personal: state.settings.personalCapacity, main: state.settings.mainCapacity } }), 'max');
+    const result = await deepseekJSON(system, JSON.stringify({ report: reportPayload(report), projects: state.projects, stats: projectStats(monthKey()), exceptionSprint: state.specialWeeks.includes(currentWeekStart()), capacities: { personal: state.settings.personalCapacity, main: state.settings.mainCapacity } }), 'high');
     state.reportDrafts[report.weekStart] = { judgment: result.judgment, suggestions: Array.isArray(result.suggestions) ? result.suggestions : [], sourceLabel: MODEL + ' · 基于本周真实数据', generatedAt: new Date().toISOString() };
     close(); save(); toast('AI 周报判断已生成');
   } catch (error) {
