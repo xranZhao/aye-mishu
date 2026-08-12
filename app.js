@@ -1,6 +1,6 @@
 /* 未尽：单人自用、离线优先的 AI 秘书。数据与 DeepSeek Key 只保存在本机。 */
 const KEY = 'weijin-state-v1';
-const APP_VERSION = '2026.08.11-3';
+const APP_VERSION = '2026.08.11-3-claude';
 const MODEL = 'deepseek-v4-pro';
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const $ = selector => document.querySelector(selector);
@@ -56,6 +56,8 @@ let deferredInstallPrompt = null;
 let _swipeState = null;
 let _timerRAF = null;
 let _scrollSecretaryAfterRender = false;
+let _thinkingSince = 0;
+let _thinkingInterval = null;
 
 /* ── 数据迁移与基础工具 ── */
 function isoDate(value) {
@@ -439,7 +441,7 @@ function pageSecretary() {
   const messages = secretary.messages.slice(-40);
   return '<header class="topbar secretary-head"><div><div class="brand">秘书</div><div class="subtitle">你说原话，我负责理解、追问和排程</div></div><button class="btn-icon" onclick="secretaryMenu()">⋯</button></header>'
     + (!state.settings.apiKey ? '<button class="ai-error-card" onclick="go(\'settings\')"><b>DeepSeek 尚未连接</b><span>先去设置 API Key；没有 AI 时不会用标点拆分代替。</span></button>' : '')
-    + '<div class="secretary-actions"><button onclick="beginSecretaryMode(\'weekly\')">本周梳理</button><button onclick="beginSecretaryMode(\'midweek\')">新增事情</button><button onclick="beginSecretaryMode(\'change\')">情况变化</button></div>'
+    + '<div class="secretary-mode-tabs">' + ['weekly','midweek','change'].map(function(m){return '<button class="'+(session&&session.mode===m?'active':'')+'" onclick="beginSecretaryMode(\''+m+'\')">'+({weekly:'📋 本周梳理',midweek:'➕ 新增事情',change:'🔄 情况变化'}[m])+'</button>'}).join('') + '</div>'
     + (session ? '<div class="session-strip"><span>' + sessionLabel(session.mode) + '</span><small>' + sessionStatusLabel(session.status) + '</small></div>' : '')
     + '<section class="conversation">' + (messages.length ? messages.map(messageHtml).join('') : secretaryWelcomeHtml()) + (secretary.busy ? busyMessageHtml() : '') + '</section>'
     + (session?.suggestedProjects?.length ? suggestedProjectsHtml(session.suggestedProjects) : '')
@@ -510,7 +512,7 @@ function messageHtml(message) {
 }
 
 function busyMessageHtml() {
-  return '<div class="message assistant thinking"><div class="message-role">秘书</div><div class="message-body"><span></span><span></span><span></span> 正在核对项目、依赖和容量</div></div>';
+  return '<div class="message assistant thinking"><div class="message-role">秘书</div><div class="message-body"><span></span><span></span><span></span> 正在核对项目、依赖和容量 <small id="thinking-elapsed"></small></div></div>';
 }
 
 function errorCardHtml(error) {
@@ -540,7 +542,7 @@ function proposalHtml(proposal) {
     + (changes.length ? '<div class="proposal-block"><h3>需要调整已有计划</h3>' + changes.map(changeHtml).join('') + '</div>' : '')
     + '<div class="proposal-block"><div class="proposal-block-head"><h3>' + (items.length ? '本周与后续安排' : '没有新增事项') + '</h3><button onclick="addProposalItem()">＋ 自加</button></div>' + proposalDayGroupsHtml(items) + '</div>'
     + (over ? '<div class="notice warn">' + esc(over) + '</div>' : '')
-    + '<div class="proposal-actions">' + (!over ? '<button class="btn-primary" onclick="confirmProposal(false)">确认并写入计划</button>' : '<button class="btn-primary" onclick="moveProposalToNextWeek()">新事项放到下周</button><button class="btn-secondary" onclick="confirmProposal(true)">明确开启例外冲刺</button>') + '<button class="btn-text" onclick="discardProposal()">继续和秘书讨论</button></div></section>';
+    + '<div class="proposal-actions"><button class="btn-primary" onclick="confirmProposal(' + (!!over) + ')">' + (over ? '确认并明确开启例外冲刺' : '确认并写入计划') + '</button><button class="btn-secondary" onclick="moveProposalToNextWeek()">新事项放到下周</button><button class="btn-text" onclick="discardProposal()">继续和秘书讨论</button></div></section>';
 }
 
 function proposalDayGroupsHtml(items, readonly = false) {
@@ -669,7 +671,8 @@ function pageSettings() {
     + '<section class="setting-card"><div class="eyebrow">两个容量池</div><div class="row"><div class="field"><label>个人项目/周</label><input id="personal-capacity" type="number" min="1" max="100" value="' + state.settings.personalCapacity + '"></div><div class="field"><label>主业专注/周</label><input id="main-capacity" type="number" min="1" max="100" value="' + state.settings.mainCapacity + '"></div></div><p>初始按个人 7 小时、主业显式专注任务 20 小时；四周后用实际数据校准。</p><button class="btn-secondary" onclick="saveSettings()">更新容量</button></section>'
     + '<section class="setting-card"><div class="eyebrow">每日小结</div><div class="field"><label>打开 App 后显示小结的时间</label><input id="reminder-time" type="time" value="' + esc(state.settings.reminderTime) + '"></div><p>PWA 没有后台服务时不会伪装成已推送；下次打开时仍可看到总结。</p><button class="btn-secondary" onclick="saveSettings()">保存时间</button></section>'
     + '<section class="setting-card"><div class="eyebrow">数据</div><p>可导出完整备份。换手机前请先保存 JSON 文件。</p><div class="row"><button class="btn-secondary" onclick="exportMenu()">导出与备份</button><button class="btn-secondary" onclick="legacyCleanupMenu()">整理旧数据</button></div></section>'
-    + '<section class="setting-card version-card"><div><div class="eyebrow">当前版本</div><p>' + APP_VERSION + '</p></div><span>新版接管后会自动刷新一次</span></section>';
+    + '<section class="setting-card version-card"><div><div class="eyebrow">当前版本</div><p>' + APP_VERSION + '</p></div><span>新版接管后会自动刷新一次</span></section>'
+    + '<section class="setting-card" style="border-color:var(--danger)"><div class="eyebrow" style="color:var(--danger)">危险操作（测试用）</div><p>复位后会清空所有本地数据，网页刷新回初始状态。</p><button class="btn-primary" style="background:var(--danger)" onclick="hardReset()">复位所有数据</button></section>';
 }
 
 function legacyCleanupMenu() {
@@ -824,6 +827,9 @@ async function understandSecretaryTurn() {
     return;
   }
   state.secretary.busy = true;
+  _thinkingSince = Date.now();
+  if (_thinkingInterval) clearInterval(_thinkingInterval);
+  _thinkingInterval = setInterval(thinkingTick, 1000);
   persist();
   render();
   try {
@@ -857,6 +863,7 @@ async function understandSecretaryTurn() {
     const rememberedMessage = appliedDecisions.length ? '我已按你之前确认的归属处理：' + appliedDecisions.map(item => '「' + item.name + '」归入「' + item.project + (item.workstream ? ' / ' + item.workstream : '') + '」').join('；') + '，不会再建议建立新项目。' + (session.questions.length ? '\n' + session.questions.map(item => item.question).join('\n') : '') : '';
     appendMessage('assistant', rememberedMessage || result.assistantMessage || (session.questions.length ? session.questions.map(item => item.question).join('\n') : '我已经理解并记在本次对话草稿里。'));
     state.secretary.busy = false;
+    stopThinking();
     state.secretary.error = null;
     persist();
     render();
@@ -932,6 +939,7 @@ async function buildScheduleProposal() {
     state.secretary.proposal = proposal;
     session.status = 'proposed';
     state.secretary.busy = false;
+    stopThinking();
     appendMessage('assistant', proposal.summary || '我已经形成一份可确认的安排。');
     persist();
     render();
@@ -1103,6 +1111,7 @@ function apiErrorMessage(error) {
 
 function secretaryFailure(error) {
   state.secretary.busy = false;
+  stopThinking();
   state.secretary.error = { code: error?.message || 'UNKNOWN', message: apiErrorMessage(error), at: new Date().toISOString() };
   persist(); render();
 }
@@ -1638,6 +1647,24 @@ async function installApp() {
 window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); deferredInstallPrompt = event; render(); });
 window.addEventListener('appinstalled', () => { deferredInstallPrompt = null; toast('未尽已安装到桌面'); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { rollTemporalState(); render(); } });
+
+/* ── 思考倒计时 ── */
+function thinkingTick() {
+  const el = document.getElementById('thinking-elapsed');
+  if (el) el.textContent = Math.floor((Date.now() - _thinkingSince) / 1000) + 's';
+}
+function stopThinking() {
+  if (_thinkingInterval) { clearInterval(_thinkingInterval); _thinkingInterval = null; }
+}
+
+/* ── 硬复位 ── */
+function hardReset() {
+  open('<h2>确认复位所有数据</h2><p>这会清空当前浏览器的全部 localStorage 数据，刷新后回到初始状态。此操作不可撤销。</p><button class="btn-primary" style="background:var(--danger)" onclick="hardResetConfirm()">确认复位</button><button class="btn-text" onclick="close()">取消</button>');
+}
+function hardResetConfirm() {
+  localStorage.removeItem(KEY);
+  location.reload();
+}
 
 if ('serviceWorker' in navigator) {
   let reloadingForNewWorker = false;

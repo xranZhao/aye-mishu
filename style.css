@@ -683,13 +683,18 @@ button{font:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transpar
 /* ── 秘书会话 ── */
 .secretary-head{padding-bottom:12px}
 
-.secretary-actions{
+.secretary-mode-tabs{
   display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:9px;
 }
 
-.secretary-actions button{
+.secretary-mode-tabs button{
   background:var(--card);border:1px solid var(--line);border-radius:9px;
   color:var(--green-deep);font-size:10px;font-weight:700;padding:8px 3px;
+  transition:all .15s;
+}
+
+.secretary-mode-tabs button.active{
+  background:var(--green-deep);color:#fff;border-color:var(--green-deep);
 }
 
 .session-strip{
@@ -887,7 +892,7 @@ button{font:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transpar
   .capacity-grid{grid-template-columns:1fr}
   .proposal-grid.three{grid-template-columns:1fr 1fr}
   .proposal-grid.three .field:last-child{grid-column:1/-1}
-  .secretary-actions button{font-size:9px}
+  .secretary-mode-tabs button{font-size:9px}
 }
 
 @media(min-width:500px){
