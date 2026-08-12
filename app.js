@@ -1333,7 +1333,7 @@ async function generateWeeklyReport() {
 给下周最多4条具体建议；建议必须说明继续、顺延、取消、调整估时或先解除哪个依赖。只输出 JSON：{"judgment":"事实判断","suggestions":["建议"]}`;
   try {
     const result = await deepseekJSON(system, JSON.stringify({ report: reportPayload(report), projects: state.projects, stats: projectStats(monthKey()), exceptionSprint: state.specialWeeks.includes(currentWeekStart()), capacities: { personal: state.settings.personalCapacity, main: state.settings.mainCapacity } }), 'medium', MODEL_PRO);
-    state.reportDrafts[report.weekStart] = { judgment: result.judgment, suggestions: Array.isArray(result.suggestions) ? result.suggestions : [], sourceLabel: MODEL + ' · 基于本周真实数据', generatedAt: new Date().toISOString() };
+    state.reportDrafts[report.weekStart] = { judgment: result.judgment, suggestions: Array.isArray(result.suggestions) ? result.suggestions : [], sourceLabel: MODEL_PRO + ' · 基于本周真实数据', generatedAt: new Date().toISOString() };
     close(); save(); toast('AI 周报判断已生成');
   } catch (error) {
     close(); toast(apiErrorMessage(error));
@@ -1387,9 +1387,6 @@ function openTimerOverlay(taskId) {
   const toggleLabel = paused ? '▶ 继续' : '⏸ 暂停';
   const toggleAction = paused ? 'resumeTimer()' : 'pauseTimer()';
   document.body.insertAdjacentHTML('beforeend', '<div class="timer-overlay" id="timer-overlay"><button class="timer-close" onclick="closeTimerOverlay()">✕</button><div class="timer-label">' + esc(task.project||'') + '</div><div class="timer-task" id="timer-label-top">' + label + '</div><div class="timer-task">' + esc(task.title) + '</div><div class="timer-ring">' + ringSvg(0, 200, 6, 'ring-fill') + '<div class="timer-display" id="timer-display">' + timerClock(taskActualMs(taskId)) + '</div></div><div class="timer-projection" id="timer-projection">预计 ' + hours(+task.estimate||0) + '</div><div class="timer-actions"><button class="btn-secondary" id="timer-toggle" onclick="' + toggleAction + '">' + toggleLabel + '</button><button class="btn-primary" onclick="finishTask(\'' + taskId + '\')">✓ 结束</button></div></div>');
-  cancelAnimationFrame(_timerRAF);
-  _timerRAF = requestAnimationFrame(timerOverlayTick);
-}
   cancelAnimationFrame(_timerRAF);
   _timerRAF = requestAnimationFrame(timerOverlayTick);
 }
